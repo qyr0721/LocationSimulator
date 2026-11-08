@@ -1,0 +1,73 @@
+name: LocationSimulator
+options:
+  bundleIdPrefix: com.locationsimulator
+  deploymentTarget:
+    iOS: "17.4"
+  xcodeVersion: "16.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    INFOPLIST_FILE: LocationSimulator/App/Info.plist
+    CODE_SIGN_STYLE: Automatic
+    CURRENT_PROJECT_VERSION: "1.0"
+    MARKETING_VERSION: "1.0.0"
+    GENERATE_INFOPLIST_FILE: false
+
+targets:
+  LocationSimulator:
+    type: application
+    platform: iOS
+    sources:
+      - path: LocationSimulator
+        excludes:
+          - "Native/**"
+    dependencies:
+      - sdk: UIKit.framework
+      - sdk: SwiftUI.framework
+      - sdk: MapKit.framework
+      - sdk: CoreLocation.framework
+      - sdk: AVFoundation.framework
+      - sdk: Network.framework
+      - sdk: Combine.framework
+    settings:
+      base:
+        HEADER_SEARCH_PATHS:
+          - "$(SRCROOT)/LocationSimulator/Native"
+        LIBRARY_SEARCH_PATHS:
+          - "$(SRCROOT)/LocationSimulator/Native"
+        OTHER_LDFLAGS:
+          - "-lidevice_ffi"
+          - "-lc++"
+          - "-lz"
+        ENABLE_BITCODE: false
+        SUPPORTS_MACCATALYST: false
+    info:
+      path: LocationSimulator/App/Info.plist
+      properties:
+        CFBundleDisplayName: LocationSimulator
+        CFBundleShortVersionString: "1.0.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSLocationWhenInUseUsageDescription: "Location access is used to keep the app alive in the background while simulating GPS location."
+        NSLocationAlwaysAndWhenInUseUsageDescription: "Location access is used to keep the app alive in the background while simulating GPS location."
+        UIBackgroundModes:
+          - audio
+          - location
+        UISupportsDocumentBrowser: false
+        LSSupportsOpeningDocumentsInPlace: true
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Coordinate File
+            LSItemContentTypes:
+              - public.plain-text
+              - public.comma-separated-values-text
+              - public.json
+              - public.xml
+              - public.data
+            CFBundleTypeRole: Viewer

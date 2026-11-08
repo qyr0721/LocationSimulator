@@ -1,0 +1,46 @@
+# Build outputs
+ipa-output/
+LocationSimulator-XTool/
+*.ipa
+*.dSYM
+DerivedData/
+build/
+
+# Archives
+*.tar.gz
+*.zip
+
+# Reference code (not part of this project)
+StikDebug-main/
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+*.xccheckout
+*.moved-aside
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+DerivedData/
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# macOS
+.DS_Store
+*.swp
+*~
+
+# IDE
+.vscode/
+.idea/
+
+# Sensitive
+*.p12
+*.mobileprovision
+*.pem
+*.key
+.workbuddy/
