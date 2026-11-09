@@ -1,6 +1,6 @@
 # LocationSimulator
 
-一个独立的 iOS GPS 位置模拟工具，从 [StikDebug](https://github.com/StikDebug/StikDebug) 中提取而来。
+一个独立的 iOS GPS 位置模拟工具。
 
 通过地图界面、路线回放、坐标导入和后台保活，模拟 iOS 设备的 GPS 位置。
 
@@ -27,7 +27,7 @@
 
 ## 首次启动
 
-应用假定你尚无配对文件，会显示全屏引导：
+应用会显示全屏引导：
 
 1. **LocalDevVPN** —— 通过 `localdevvpn://enable` 打开 VPN 应用，未安装则跳转 App Store。
 2. **配对** —— 「配对此设备」可在设备端直接生成配对文件（无需电脑）；「从文件导入」接受已有的 `.plist` / `.mobiledevicepairing`。
