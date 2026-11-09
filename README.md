@@ -1,172 +1,173 @@
 # LocationSimulator
 
-A standalone iOS GPS location simulation app, extracted from [StikDebug](https://github.com/StikDebug/StikDebug).
+一个独立的 iOS GPS 位置模拟工具，从 [StikDebug](https://github.com/StikDebug/StikDebug) 中提取而来。
 
-Simulate your iOS device's GPS location with a map-based interface, route playback, coordinate import, and background keep-alive.
+通过地图界面、路线回放、坐标导入和后台保活，模拟 iOS 设备的 GPS 位置。
 
-## Features
+## 功能特性
 
-- **First-Run Guide** — On first launch, a step-by-step guide walks you through connecting LocalDevVPN (with an App Store fallback) and creating a pairing file. On-device pairing is recommended, file import is still available.
-- **Map Pin** — Tap anywhere on the map to drop a pin and simulate that GPS location
-- **Live Updates** — While simulating, changing the coordinate (map tap, search, history/favorites, manual input) is pushed to the device immediately — no need to stop and restart
-- **Location Search** — Search for addresses and points of interest
-- **Route Simulation** — Plan a route by tapping the map, searching places, or starting from your current location, then play it back with realistic speeds (uses OpenStreetMap speed limit data)
-- **Coordinate Import** — Import coordinates from GPX, KML, GeoJSON, JSON, CSV, or plain text files
-- **History & Favorites** — Rename entries, add/remove with swipe actions
-- **Fast Connection Check** — Network/VPN status is monitored continuously; starting a simulation performs an instant preflight gate instead of waiting for a slow Bonjour lookup
-- **Background Keep-Alive** — Silent audio or location-based keep-alive to maintain simulation in the background
-- **Resend Loop** — Automatically re-sends the simulated location every 4 seconds to maintain the spoof
+- **首次使用引导** —— 首次启动时逐步引导你连接 LocalDevVPN（附 App Store 跳转）并创建配对文件。推荐在设备端直接配对，也支持导入已有文件。
+- **地图选点** —— 点击地图任意位置落点，即可模拟该坐标
+- **实时改点** —— 模拟过程中修改坐标（地图点击、搜索、历史/收藏、手动输入）会立即推送到设备，无需停止后重启
+- **地点搜索** —— 搜索地址与兴趣点
+- **路线模拟** —— 通过地图点选、搜索地点或从当前位置出发规划路线，然后以真实速度回放（使用 OpenStreetMap 限速数据）
+- **坐标导入** —— 支持从 GPX、KML、GeoJSON、JSON、CSV 或纯文本文件导入坐标
+- **历史与收藏** —— 支持重命名、滑动添加/删除
+- **快速连接检测** —— 持续监控网络/VPN 状态；启动模拟时走即时预检门禁，不再等待缓慢的 Bonjour 查询
+- **后台保活** —— 静音音频或定位保活，维持后台模拟不中断
+- **循环重发** —— 每 4 秒自动重发一次模拟坐标，保持伪装
 
-## Requirements
+## 环境要求
 
-- **iOS 17.4+** (uses the RemotePairing / RSD tunnel API)
-- A **pairing file** (`.plist` or `.mobiledevicepairing`) for your device
-- A **loopback VPN** such as [LocalDevVPN](https://apps.apple.com/us/app/localdevvpn/id6755608044) (for on-device simulation)
-- **macOS with Xcode 16+** to build
-- **XcodeGen** to generate the Xcode project (or create one manually)
+- **iOS 17.4+**（使用 RemotePairing / RSD 隧道 API）
+- **配对文件**（`.plist` 或 `.mobiledevicepairing`）
+- **回环 VPN**，如 [LocalDevVPN](https://apps.apple.com/us/app/localdevvpn/id6755608044)（用于设备端模拟）
+- **macOS + Xcode 16+** 用于构建
+- **XcodeGen** 用于生成 Xcode 工程（也可手动创建）
 
-## First Launch
+## 首次启动
 
-The app assumes you have no pairing file yet and shows a full-screen guide:
+应用假定你尚无配对文件，会显示全屏引导：
 
-1. **LocalDevVPN** — open the VPN app with `localdevvpn://enable`, or jump to the App Store if it isn't installed.
-2. **Pairing** — "Pair This Device" creates a pairing file on-device (no computer needed); "Import from File" accepts an existing `.plist` / `.mobiledevicepairing`.
-3. **Done** — the guide is dismissed and won't appear again. You can re-open it from **设置 → 关于 → 重新查看使用引导**.
+1. **LocalDevVPN** —— 通过 `localdevvpn://enable` 打开 VPN 应用，未安装则跳转 App Store。
+2. **配对** —— 「配对此设备」可在设备端直接生成配对文件（无需电脑）；「从文件导入」接受已有的 `.plist` / `.mobiledevicepairing`。
+3. **完成** —— 引导收起且不再出现。之后可从 **设置 → 关于 → 重新查看使用引导** 再次打开。
 
-The connection banner on the home page shows readiness in real time and blocks a simulation start while the VPN or pairing file is missing.
+首页的连接状态条会实时显示就绪状态，VPN 或配对文件缺失时会阻止启动模拟。
 
-## Building
+## 构建
 
-### Using XcodeGen (recommended)
+### 使用 XcodeGen（推荐）
 
 ```bash
-# Install XcodeGen if you don't have it
+# 如未安装 XcodeGen
 brew install xcodegen
 
-# Generate the Xcode project (project.yml is at the repository root)
+# 生成 Xcode 工程（project.yml 位于仓库根目录）
 xcodegen generate
 
-# Open in Xcode
+# 用 Xcode 打开
 open LocationSimulator.xcodeproj
 ```
 
-Then in Xcode:
-1. Select the **LocationSimulator** target
-2. Go to **Signing & Capabilities** and set your Apple ID / team
-3. Set a unique **Bundle Identifier** (e.g., `com.yourname.LocationSimulator`)
-4. Build and run on your device (Cmd+R)
+然后在 Xcode 中：
 
-### Manual Xcode Project Setup
+1. 选中 **LocationSimulator** 目标
+2. 进入 **Signing & Capabilities**，设置你的 Apple ID / Team
+3. 设置唯一的 **Bundle Identifier**（例如 `com.yourname.LocationSimulator`）
+4. 构建并运行到真机（Cmd+R）
 
-If you prefer not to use XcodeGen:
+### 手动配置 Xcode 工程
 
-1. Create a new iOS App project in Xcode (SwiftUI, iOS 17.4+)
-2. Add all source files from `LocationSimulator/` to the project
-3. Add `Native/libidevice_ffi.a` to **Link Binary With Libraries**
-4. Set `HEADER_SEARCH_PATHS` to `$(SRCROOT)/LocationSimulator/Native`
-5. Set `LIBRARY_SEARCH_PATHS` to `$(SRCROOT)/LocationSimulator/Native`
-6. Add linker flags: `-lidevice_ffi -lc++ -lz`
-7. Configure `Info.plist` with the background modes and location permissions (see `LocationSimulator/App/Info.plist`)
+如果不使用 XcodeGen：
+
+1. 在 Xcode 新建 iOS App 工程（SwiftUI，iOS 17.4+）
+2. 将 `LocationSimulator/` 下所有源文件加入工程
+3. 把 `Native/libidevice_ffi.a` 加入 **Link Binary With Libraries**
+4. 设置 `HEADER_SEARCH_PATHS` 为 `$(SRCROOT)/LocationSimulator/Native`
+5. 设置 `LIBRARY_SEARCH_PATHS` 为 `$(SRCROOT)/LocationSimulator/Native`
+6. 添加链接参数：`-lidevice_ffi -lc++ -lz`
+7. 配置 `Info.plist` 的后台模式与定位权限（参考 `LocationSimulator/App/Info.plist`）
 
 ### xtool / SwiftPM
 
-`python3 build_locsim_xtool.py` at the repository root converts the sources into a SwiftPM package for [xtool](https://github.com/xtool-org/xtool). It picks up all `*.swift` files automatically, so newly added source files need no manual registration.
+仓库根目录的 `python3 build_locsim_xtool.py` 会把源码转换为可供 [xtool](https://github.com/xtool-org/xtool) 使用的 SwiftPM 包。它会自动收集所有 `*.swift` 文件，新增源文件无需手动注册。
 
-## Usage
+## 使用说明
 
-### 1. Import Pairing File
+### 1. 导入配对文件
 
-Open **Settings** (gear icon) and tap **Import Pairing File**. Select your `.mobiledevicepairing` or `.plist` pairing file. On iOS 27+ you can also use **创建配对文件（设备端）**.
+打开 **设置**（齿轮图标），点击 **导入配对文件**，选择你的 `.mobiledevicepairing` 或 `.plist`。iOS 27+ 还可使用 **创建配对文件（设备端）**。
 
-> How to get a pairing file: See [PAIRING.md](https://github.com/StikDebug/StikDebug/blob/main/PAIRING.md) in the StikDebug project, or use SideStore/AltStore pairing tools.
+> 配对文件获取方式：参考 StikDebug 项目的 [PAIRING.md](https://github.com/StikDebug/StikDebug/blob/main/PAIRING.md)，或使用 SideStore/AltStore 的配对工具。
 
-### 2. Set Up VPN
+### 2. 配置 VPN
 
-Launch **LocalDevVPN** (or your preferred loopback VPN) and enable it. The default device IP is `10.7.0.1`.
+启动 **LocalDevVPN**（或你常用的回环 VPN）并开启。默认设备 IP 为 `10.7.0.1`。
 
-> For non-loopback setups (e.g., Wi-Fi), change the device IP in Settings.
+> 非回环场景（如走 Wi-Fi）请在设置中修改设备 IP。
 
-### 3. Simulate Location
+### 3. 模拟位置
 
-- **Single pin**: Tap the map to drop a pin, then tap **启动模拟**. Change the pin while simulating and the new location takes effect immediately.
-- **Route**: Open 路线模拟 from the drawer, tap the map / search a place / use the location button to set the start, then tap **开始模拟**.
-- **Import**: Tap the import icon to load coordinates from a file (available in the legacy map view).
+- **单点**：点击地图落点，然后点击 **启动模拟**。模拟过程中移动落点会立即生效。
+- **路线**：从侧边栏打开「路线模拟」，通过地图点选 / 搜索地点 / 定位按钮设置起点，然后点击 **开始模拟**。
+- **导入**：点击导入图标从文件加载坐标（在旧版地图视图中提供）。
 
-### 4. Manage History & Favorites
+### 4. 管理历史与收藏
 
-Open the clock / star buttons next to the search bar. Swipe right on a row to rename it, swipe left to delete it (or add it to favorites from history).
+打开搜索栏旁的时钟 / 星标按钮。向右滑动重命名，向左滑动删除（或从历史加入收藏）。
 
-### 5. Stop Simulation
+### 5. 停止模拟
 
-Tap **停止模拟** to clear the simulated location and restore real GPS.
+点击 **停止模拟** 清除模拟位置并恢复真实 GPS。
 
-## Architecture
+## 项目结构
 
 ```
 LocationSimulator/
 ├── App/
-│   ├── LocationSimulatorApp.swift        # App entry point + first-run guide
+│   ├── LocationSimulatorApp.swift        # 应用入口 + 首次引导
 │   └── Info.plist
 ├── Views/
-│   ├── MainDrawerView.swift              # Three-layer drawer navigation
-│   ├── OnboardingView.swift              # First-run guide (VPN → pairing)
-│   ├── PointSimulationView.swift         # Point simulation: search, map, history, favorites
-│   ├── RouteSimulationView.swift         # Route simulation: search, waypoints, playback
-│   ├── SettingsDrawerView.swift          # Settings page used by the drawer
-│   ├── SettingsView.swift                # Legacy English settings (not mounted)
-│   ├── OnDevicePairingView.swift         # On-device pairing guide
-│   └── LocationSimulationView.swift      # Legacy English map view (not mounted)
+│   ├── MainDrawerView.swift              # 三层抽屉导航
+│   ├── OnboardingView.swift              # 首次引导（VPN → 配对）
+│   ├── PointSimulationView.swift         # 点模拟：搜索、地图、历史、收藏
+│   ├── RouteSimulationView.swift         # 路线模拟：搜索、路径点、回放
+│   ├── SettingsDrawerView.swift          # 抽屉使用的设置页
+│   ├── SettingsView.swift                # 旧版英文设置（未挂载）
+│   ├── OnDevicePairingView.swift         # 设备端配对引导
+│   └── LocationSimulationView.swift      # 旧版英文地图视图（未挂载）
 ├── Services/
-│   ├── LocationSimulationSession.swift  # Simulation state + live coordinate updates
-│   ├── ConnectionPreflight.swift        # Instant connection gate + VPN link helpers
-│   ├── OnDevicePairingService.swift     # On-device pairing implementation
-│   ├── BackgroundLocationManager.swift  # Location-based keep-alive
-│   └── BackgroundAudioManager.swift     # Silent audio keep-alive
+│   ├── LocationSimulationSession.swift  # 模拟状态 + 实时坐标更新
+│   ├── ConnectionPreflight.swift        # 即时连接门禁 + VPN 链接助手
+│   ├── OnDevicePairingService.swift     # 设备端配对实现
+│   ├── BackgroundLocationManager.swift  # 定位保活
+│   └── BackgroundAudioManager.swift     # 静音音频保活
 ├── Device/
-│   ├── LocationFFIBridge.swift          # FFI bridge to idevice library
-│   ├── RemotePairingPortResolver.swift  # Bonjour port discovery (cached / async)
-│   └── DeviceConnectionContext.swift    # Device IP configuration
+│   ├── LocationFFIBridge.swift          # idevice 库的 FFI 桥接
+│   ├── RemotePairingPortResolver.swift  # Bonjour 端口发现（缓存 / 异步）
+│   └── DeviceConnectionContext.swift    # 设备 IP 配置
 ├── Support/
-│   ├── MapLegalHider.swift              # Hides MapKit's Legal link on the map
-│   ├── PairingFileStore.swift           # Pairing file management
-│   ├── ChinaCoordinateTransform.swift   # GCJ-02 / WGS-84 conversion
-│   ├── AlertPresenter.swift             # UIKit alert helper
-│   └── UserDefaults+Keys.swift          # Settings keys
+│   ├── MapLegalHider.swift              # 隐藏地图上的 MapKit Legal 链接
+│   ├── PairingFileStore.swift           # 配对文件管理
+│   ├── ChinaCoordinateTransform.swift   # GCJ-02 / WGS-84 转换
+│   ├── AlertPresenter.swift             # UIKit 弹窗助手
+│   └── UserDefaults+Keys.swift          # 设置项键名
 └── Native/
-    ├── idevice.h                        # C FFI header
-    ├── libidevice_ffi.a                 # Compiled Rust FFI library
+    ├── idevice.h                        # C FFI 头文件
+    ├── libidevice_ffi.a                 # 编译好的 Rust FFI 库
     └── module.modulemap                 # Clang module map
 ```
 
-> `LocationSimulationView.swift` and `SettingsView.swift` are the original StikDebug-style English views, kept for reference but not mounted by `MainDrawerView`. Apple map attribution is retained as text in **设置 → 关于**.
+> `LocationSimulationView.swift` 与 `SettingsView.swift` 是最初 StikDebug 风格的英文视图，仅作参考保留，未由 `MainDrawerView` 挂载。Apple 地图归属信息以文字形式保留在 **设置 → 关于** 中。
 
-### How It Works
+### 工作原理
 
-1. The app establishes a RemotePairing tunnel to the iOS device (via loopback VPN)
-2. It connects to the device's RemoteServiceDiscovery (RSD) service
-3. It uses the `location_simulation` API to set/clear GPS coordinates
-4. A resend timer re-sends the current coordinate every 4 seconds to maintain the spoof
-5. Background keep-alive mechanisms prevent iOS from suspending the app
+1. 应用通过回环 VPN 与 iOS 设备建立 RemotePairing 隧道
+2. 连接设备的 RemoteServiceDiscovery（RSD）服务
+3. 调用 `location_simulation` API 设置/清除 GPS 坐标
+4. 重发定时器每 4 秒重发当前坐标以维持伪装
+5. 后台保活机制防止 iOS 挂起应用
 
-## Supported Coordinate Import Formats
+## 支持的坐标导入格式
 
-| Format | Extension | Notes |
-|--------|-----------|-------|
-| GPX | `.gpx` | Waypoints, track points, route points |
-| KML | `.kml` | `<coordinates>` elements |
-| GeoJSON | `.geojson`, `.json` | FeatureCollection, GeometryCollection |
-| JSON | `.json` | `lat`/`lon` or `latitude`/`longitude` keys |
-| CSV | `.csv` | With or without header row (lat/lon columns) |
-| Plain Text | `.txt` | Space/comma/semicolon separated coordinate pairs |
+| 格式 | 扩展名 | 说明 |
+|------|--------|------|
+| GPX | `.gpx` | 路点、轨迹点、路线点 |
+| KML | `.kml` | `<coordinates>` 元素 |
+| GeoJSON | `.geojson`, `.json` | FeatureCollection、GeometryCollection |
+| JSON | `.json` | `lat`/`lon` 或 `latitude`/`longitude` 键 |
+| CSV | `.csv` | 有无表头均可（lat/lon 列） |
+| 纯文本 | `.txt` | 空格/逗号/分号分隔的坐标对 |
 
-## License
+## 开源许可
 
-This project is extracted from [StikDebug](https://github.com/StikDebug/StikDebug) and is licensed under **AGPL-3.0**. See [LICENSE](https://github.com/StikDebug/StikDebug/blob/main/LICENSE) for details.
+本项目从 [StikDebug](https://github.com/StikDebug/StikDebug) 提取，采用 **AGPL-3.0** 许可。详见 [LICENSE](https://github.com/StikDebug/StikDebug/blob/main/LICENSE)。
 
-Speed limit data is provided by [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors (ODbL).
+限速数据由 [OpenStreetMap](https://www.openstreetmap.org/copyright) 贡献者提供（ODbL）。
 
-## Credits
+## 致谢
 
-- [StikDebug](https://github.com/StikDebug/StikDebug) — Original project
-- [idevice](https://github.com/jkcoxson/idevice) — Rust library for iOS device communication
-- [OpenStreetMap](https://www.openstreetmap.org/) — Speed limit data for route simulation
+- [StikDebug](https://github.com/StikDebug/StikDebug) —— 原始项目
+- [idevice](https://github.com/jkcoxson/idevice) —— iOS 设备通信的 Rust 库
+- [OpenStreetMap](https://www.openstreetmap.org/) —— 路线模拟的限速数据
