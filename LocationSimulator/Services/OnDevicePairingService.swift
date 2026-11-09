@@ -82,7 +82,8 @@ final class OnDevicePairingService: ObservableObject {
             guard self.operationID == operationID else { return }
 
             if #available(iOS 27.0, *) {
-                BackgroundAudioManager.shared.requestStart()
+                // 强制保活：配对时必须保持 App 在后台活跃，否则切到设置输入密码后收不到配对码
+                BackgroundAudioManager.shared.requestForceStart()
                 BackgroundLocationManager.shared.requestStart()
                 self.keepAliveRunning = true
             }
@@ -355,7 +356,7 @@ final class OnDevicePairingService: ObservableObject {
     private func stopKeepAlive() {
         guard keepAliveRunning else { return }
         keepAliveRunning = false
-        BackgroundAudioManager.shared.requestStop()
+        BackgroundAudioManager.shared.requestForceStop()
         BackgroundLocationManager.shared.requestStop()
     }
 
@@ -366,8 +367,8 @@ final class OnDevicePairingService: ObservableObject {
 
         if mode == .localDevice {
             let content = UNMutableNotificationContent()
-            content.title = "Pairing code"
-            content.body = "Enter \(pin) to finish pairing."
+            content.title = "配对码"
+            content.body = "输入 \(pin) 完成配对。"
             content.sound = .default
             UNUserNotificationCenter.current().add(
                 UNNotificationRequest(identifier: "locationsimulator.pairing.pin", content: content, trigger: nil)

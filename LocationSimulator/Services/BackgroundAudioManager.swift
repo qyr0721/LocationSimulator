@@ -15,6 +15,7 @@ final class BackgroundAudioManager {
     private var player = AVAudioPlayerNode()
     private var isRunning = false
     private var activityCount = 0
+    private var forceCount = 0  // 强制保活计数（配对等关键流程使用，不受用户设置限制）
     private var healthCheckTimer: Timer?
 
     private init() {
@@ -46,8 +47,21 @@ final class BackgroundAudioManager {
         refreshRunningState()
     }
 
+    /// 强制保活（不受用户设置限制）——配对等关键流程必须保持 App 在后台活跃，
+    /// 否则切到「设置」输入密码后 App 被挂起，收不到配对码通知。
+    func requestForceStart() {
+        forceCount += 1
+        refreshRunningState()
+    }
+
+    func requestForceStop() {
+        forceCount = max(forceCount - 1, 0)
+        refreshRunningState()
+    }
+
     private func refreshRunningState() {
-        let shouldRun = activityCount > 0 && UserDefaults.standard.bool(forKey: UserDefaults.Keys.keepAliveAudio)
+        // 强制保活不受 keepAliveAudio 设置限制
+        let shouldRun = forceCount > 0 || (activityCount > 0 && UserDefaults.standard.bool(forKey: UserDefaults.Keys.keepAliveAudio))
         guard shouldRun != isRunning else {
             if shouldRun {
                 recoverIfNeeded()

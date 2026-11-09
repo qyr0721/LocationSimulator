@@ -67,14 +67,14 @@ def main() -> None:
     (OUT / "Resources").mkdir(parents=True)
     (OUT / "Support").mkdir(parents=True)
 
-    # 1. Swift 源码
+    # 1. Swift 源码（主 app，排除扩展目录）
     swift_files = sorted(SRC.rglob("*.swift"))
     for f in swift_files:
         rel = f.relative_to(SRC)
         dst = OUT / "Sources" / "LocationSimulator" / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(f, dst)
-    print(f"[1] Swift 源码: {len(swift_files)} 个文件")
+    print(f"[1] 主 App Swift: {len(swift_files)} 个文件")
 
     # 2. C 静态库
     shutil.copy2(SRC / "Native" / "idevice.h", OUT / "Sources" / "idevice" / "idevice.h")
@@ -82,9 +82,14 @@ def main() -> None:
     shutil.copy2(SRC / "Native" / "libidevice_ffi.a", OUT / "Libraries" / "libidevice_ffi.a")
     print("[2] idevice: 头文件 + modulemap + arm64 静态库")
 
-    # 3. 图标
+    # 3. 图标 + 头像
     make_icon(OUT / "Resources" / "AppIcon.png")
-    print("[3] AppIcon.png (1024x1024)")
+    avatar_src = SRC / "Resources" / "avatar.jpg"
+    if avatar_src.exists():
+        shutil.copy2(avatar_src, OUT / "Resources" / "avatar.jpg")
+        print("[3] AppIcon.png + avatar.jpg")
+    else:
+        print("[3] AppIcon.png (无 avatar.jpg)")
 
     # 4. Info.plist
     info = plistlib.loads((SRC / "App" / "Info.plist").read_bytes())
@@ -134,15 +139,13 @@ def main() -> None:
         plistlib.dumps(info, fmt=plistlib.FMT_XML, sort_keys=True))
     print(f"[4] Info.plist: {len(info)} 个键")
 
-    # 5. entitlements
-    entitlements = {
-        "com.apple.security.application-groups": ["group.com.locationsimulator.app"],
-    }
+    # 5. entitlements（已回滚 VPN，仅保留空 entitlements）
+    entitlements = {}
     (OUT / "Support" / "LocationSimulator.entitlements").write_bytes(
         plistlib.dumps(entitlements, fmt=plistlib.FMT_XML, sort_keys=True))
-    print("[5] entitlements")
+    print("[5] entitlements (空)")
 
-    # 6. Package.swift
+    # 6. Package.swift（无扩展 target）
     (OUT / "Package.swift").write_text("""// swift-tools-version: 6.0
 import PackageDescription
 import Foundation
@@ -175,7 +178,7 @@ let package = Package(
 """, encoding="utf-8")
     print("[6] Package.swift")
 
-    # 7. xtool.yml
+    # 7. xtool.yml（无扩展声明）
     (OUT / "xtool.yml").write_text("""version: 1
 bundleID: com.locationsimulator.app
 product: LocationSimulator

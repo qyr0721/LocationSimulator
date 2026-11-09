@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import NetworkExtension
 
 // MARK: - Menu Items
 

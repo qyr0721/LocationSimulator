@@ -148,17 +148,17 @@ struct OnboardingView: View {
             )
 
             VStack(alignment: .leading, spacing: 12) {
-                guideStep(1, "安装 LocalDevVPN（若已安装可跳过）")
-                guideStep(2, "打开 App 并启用回环 VPN，保持连接")
-                guideStep(3, "回到 LocationSimulator 继续下一步")
+                guideStep(1, "安装并打开 LocalDevVPN 应用")
+                guideStep(2, "在 LocalDevVPN 中点击连接")
+                guideStep(3, "等待隧道建立完成")
             }
             .padding(18)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 20))
 
             statusCard(
                 ready: preflight.snapshot.hasVPNInterface,
-                readyText: "已检测到回环隧道",
-                waitingText: "尚未检测到 LocalDevVPN 回环隧道"
+                readyText: "回环隧道已建立",
+                waitingText: "等待建立回环隧道"
             ) {
                 Button {
                     preflight.refresh()
@@ -170,18 +170,17 @@ struct OnboardingView: View {
             }
 
             VStack(spacing: 10) {
-                primaryButton(title: "打开 LocalDevVPN", icon: "arrow.up.right.square") {
-                    openLocalDevVPN()
+                primaryButton(title: "打开 LocalDevVPN", icon: "shield.lefthalf.filled") {
+                    LocalDevVPNLink.open()
                 }
-                Button {
-                    openAppStore()
-                } label: {
-                    Text("我还没有，去 App Store 下载")
-                        .font(.subheadline)
-                        .foregroundStyle(.blue)
-                }
-                .buttonStyle(.plain)
+                Text("请先安装 LocalDevVPN 应用并启用隧道。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
+        }
+        .onAppear {
+            preflight.refresh()
         }
     }
 
@@ -247,7 +246,7 @@ struct OnboardingView: View {
                 .symbolRenderingMode(.hierarchical)
             Text("一切就绪")
                 .font(.system(size: 28, weight: .bold))
-            Text("现在可以在地图上选点，点击「启动模拟」开始使用。\n之后可在侧边栏的「设置」中随时管理 VPN 与配对文件。")
+            Text("现在可以在地图上选点，点击「启动模拟」开始使用。\n之后可在侧边栏的「设置」中随时管理配对文件。")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -387,10 +386,6 @@ struct OnboardingView: View {
 
     private func openLocalDevVPN() {
         LocalDevVPNLink.open()
-    }
-
-    private func openAppStore() {
-        LocalDevVPNLink.openAppStore()
     }
 
     private func importPairingFile(_ result: Result<[URL], Error>) {

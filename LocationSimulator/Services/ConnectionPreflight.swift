@@ -32,7 +32,7 @@ enum PreflightIssue: Identifiable, Equatable {
         switch self {
         case .missingPairingFile: return "还没有配对文件"
         case .networkUnavailable: return "网络不可用"
-        case .vpnNotConnected: return "LocalDevVPN 未连接"
+        case .vpnNotConnected: return "VPN 未连接"
         }
     }
 
@@ -43,7 +43,7 @@ enum PreflightIssue: Identifiable, Equatable {
         case .networkUnavailable:
             return "请连接 Wi-Fi 或蜂窝网络后再启动模拟。"
         case .vpnNotConnected:
-            return "请先打开 LocalDevVPN 建立回环隧道，然后返回这里重试。"
+            return "请先连接 LocalDevVPN 建立回环隧道。"
         }
     }
 
@@ -68,11 +68,16 @@ struct PreflightSnapshot {
     var deviceReachable: Bool?
     var updatedAt: Date
 
-    /// 硬门槛只拦最确定的问题，避免误伤已经连上的用户。
+    /// 硬门槛只拦最确定的问题。VPN 不是必需条件 —— 默认走 127.0.0.1 直连。
+    /// 仅当用户手动设置了 10.7.0.x 时才要求 VPN。
     var blockingIssue: PreflightIssue? {
         guard hasPairingFile else { return .missingPairingFile }
         guard hasNetwork else { return .networkUnavailable }
-        guard hasVPNInterface else { return .vpnNotConnected }
+        // 只有目标 IP 是隧道 IP 时才要求 VPN
+        let targetIP = DeviceConnectionContext.targetIPAddress
+        if targetIP.hasPrefix("10.7.0.") && !hasVPNInterface {
+            return .vpnNotConnected
+        }
         return nil
     }
 
@@ -80,7 +85,7 @@ struct PreflightSnapshot {
 
     var statusText: String {
         if let blockingIssue { return blockingIssue.title }
-        if deviceReachable == false { return "VPN 已连接，设备服务暂未响应" }
+        if deviceReachable == false { return "设备服务暂未响应" }
         return "已就绪"
     }
 
@@ -240,8 +245,11 @@ final class ConnectionPreflight: ObservableObject {
         isProbing = false
     }
 
-    /// 同步读取本机接口，检查 LocalDevVPN 的 utun 隧道是否已建立。
-    /// 相比 NWPathMonitor 的首次回调，这个判断没有任何等待。
+    /// 同步读取本机接口，精确检测回环隧道是否已建立。
+    /// 关键改进：不只看 utun 接口是否存在（iOS 系统始终有 utun0），
+    /// 而是检查是否有 utun 接口绑定了隧道 IP（10.7.0.1）。
+    /// 参考 StikDebug 的检测方式：通过 getifaddrs 遍历地址列表，
+    /// 匹配目标隧道 IP 而非仅接口名前缀。
     private static func interfaceFlags() -> InterfaceFlags {
         var first: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&first) == 0 else { return InterfaceFlags() }
@@ -257,30 +265,42 @@ final class ConnectionPreflight: ObservableObject {
                   let address = entry.pointee.ifa_addr,
                   address.pointee.sa_family == UInt8(AF_INET) else { continue }
 
-            if name.hasPrefix("utun") { result.hasVPN = true }
+            // 精确检测：utun 接口上绑定了隧道 IP（10.7.0.1）才算隧道已建立
+            if name.hasPrefix("utun") {
+                var hostname = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+                let result_getname = getnameinfo(
+                    address, socklen_t(address.pointee.sa_len),
+                    &hostname, socklen_t(hostname.count),
+                    nil, 0, NI_NUMERICHOST
+                )
+                if result_getname == 0 {
+                    let ip = String(cString: hostname)
+                    // 检查是否是回环隧道 IP（10.7.0.x 子网）
+                    if ip.hasPrefix("10.7.0.") {
+                        result.hasVPN = true
+                    }
+                }
+            }
             if name.hasPrefix("en") || name.hasPrefix("utun") { result.hasAnyUp = true }
         }
         return result
     }
 }
 
-// MARK: - LocalDevVPN 跳转（引导页、状态条、拦截弹窗共用）
+// MARK: - VPN 连接（引导页、状态条、拦截弹窗共用）
+// 打开外部 LocalDevVPN 应用建立回环隧道。
 
 enum LocalDevVPNLink {
-    static let appStoreURL = "https://apps.apple.com/us/app/localdevvpn/id6755608044"
-    static let urlScheme = "localdevvpn://enable?scheme=locationsimulator"
-
     static func open() {
-        guard let url = URL(string: urlScheme) else { return }
-        UIApplication.shared.open(url, options: [:]) { opened in
-            if !opened {
-                DispatchQueue.main.async { openAppStore() }
-            }
+        // 尝试打开 LocalDevVPN app（URL scheme）
+        if let url = URL(string: "localdevvpn://"),
+           UIApplication.shared.canOpenURL(url) {
+            UIApplication.shared.open(url)
+            return
         }
-    }
-
-    static func openAppStore() {
-        guard let url = URL(string: appStoreURL) else { return }
-        UIApplication.shared.open(url)
+        // fallback: 打开 App Store 搜索页
+        if let storeURL = URL(string: "itms-apps://itunes.apple.com/search?term=LocalDevVPN&entity=software") {
+            UIApplication.shared.open(storeURL)
+        }
     }
 }

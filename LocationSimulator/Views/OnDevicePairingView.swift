@@ -17,7 +17,7 @@ struct OnDevicePairingView: View {
         Form {
             content
         }
-        .navigationTitle("Create Pairing File")
+        .navigationTitle("创建配对文件")
         .navigationBarTitleDisplayMode(.inline)
         .animation(.default, value: service.phase)
         .onDisappear {
@@ -33,29 +33,29 @@ struct OnDevicePairingView: View {
                 Button {
                     service.start()
                 } label: {
-                    Label("Pair This iPhone / iPad", systemImage: "iphone")
+                    Label("配对此 iPhone / iPad", systemImage: "iphone")
                 }
             } footer: {
-                Text("Create a pairing file without a computer. Your device must run iOS/iPadOS 27 or later. The app will advertise itself and guide you through Settings to complete pairing.")
+                Text("无需电脑即可创建配对文件。设备需运行 iOS/iPadOS 27 或更高版本。App 将广播自身并引导您在设置中完成配对。")
             }
 
         case .discovering:
             Section {
                 HStack(spacing: 12) {
                     ProgressView()
-                    Text("Waiting for a device to connect…")
+                    Text("等待设备连接…")
                         .foregroundStyle(.secondary)
                 }
             }
             Section {
-                guideStep(1, "Open Settings on the device being paired.")
-                guideStep(2, "Go to Privacy & Security › Developer Mode.")
-                guideStep(3, "Tap Pair with \(service.hostname).")
-                guideStep(4, "Enter the code shown below or in the notification.")
+                guideStep(1, "在需要配对的设备上打开「设置」")
+                guideStep(2, "进入「隐私与安全性 → 开发者模式」")
+                guideStep(3, "点击「与 \(service.hostname) 配对」")
+                guideStep(4, "输入下方或通知中显示的配对码")
             } header: {
-                Text("On the iPhone or iPad")
+                Text("在 iPhone 或 iPad 上操作")
             } footer: {
-                Text("For this device, the app stays active while you open Settings. For another device, keep this screen open to see its code.")
+                Text("配对本机时，App 会保持活跃直到您完成设置。配对其他设备时，请保持此页面打开以查看配对码。")
             }
             cancelSection
 
@@ -63,7 +63,7 @@ struct OnDevicePairingView: View {
             Section {
                 HStack(spacing: 12) {
                     ProgressView()
-                    Text("Confirming the pairing…")
+                    Text("正在确认配对…")
                 }
             }
             cancelSection
@@ -72,8 +72,8 @@ struct OnDevicePairingView: View {
             Section {
                 VStack(spacing: 14) {
                     Text(service.mode == .localDevice
-                         ? "Enter this code in Settings on this device"
-                         : "Enter this code on the other device")
+                         ? "请在本机设置中输入此配对码"
+                         : "请在另一台设备上输入此配对码")
                         .font(.headline)
                         .multilineTextAlignment(.center)
                     Text(pin)
@@ -90,26 +90,26 @@ struct OnDevicePairingView: View {
 
         case .success(let name, let model, let isLocal):
             Section {
-                Label("Pairing Complete", systemImage: "checkmark.seal.fill")
+                Label("配对完成", systemImage: "checkmark.seal.fill")
                     .foregroundStyle(.green)
                 if !name.isEmpty || !model.isEmpty {
                     Text([name, model].filter { !$0.isEmpty }.joined(separator: " · "))
                         .foregroundStyle(.secondary)
                 }
                 if isLocal {
-                    Label("Pairing file saved — ready for location simulation", systemImage: "checkmark.circle.fill")
+                    Label("配对文件已保存 — 可以开始位置模拟了", systemImage: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                 }
             }
             Section {
-                Button("Done") {
+                Button("完成") {
                     dismiss()
                 }
             }
 
         case .failed(let message):
             Section {
-                Label("Pairing Failed", systemImage: "xmark.octagon.fill")
+                Label("配对失败", systemImage: "xmark.octagon.fill")
                     .foregroundStyle(.red)
                 Text(message)
                     .font(.footnote)
@@ -117,7 +117,7 @@ struct OnDevicePairingView: View {
                     .textSelection(.enabled)
             }
             Section {
-                Button("Try Again") {
+                Button("重试") {
                     service.reset()
                 }
             }
@@ -126,7 +126,7 @@ struct OnDevicePairingView: View {
 
     private var cancelSection: some View {
         Section {
-            Button("Cancel", role: .cancel) {
+            Button("取消", role: .cancel) {
                 service.cancel()
             }
         }

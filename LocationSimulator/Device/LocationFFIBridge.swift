@@ -98,16 +98,6 @@ func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Doub
         }
     }
 
-    // Build socket address
-    var address = sockaddr_in()
-    address.sin_family = sa_family_t(AF_INET)
-    address.sin_port = in_port_t(RemotePairingPortResolver.resolve(targetIPAddress: deviceIP)).bigEndian
-
-    let inetResult = deviceIP.withCString { inet_pton(AF_INET, $0, &address.sin_addr) }
-    guard inetResult == 1 else {
-        return LocationSimulationStatus.invalidIP
-    }
-
     // Read pairing file
     var pairingHandle: OpaquePointer?
     let pairingError = pairingFile.withCString { rp_pairing_file_read($0, &pairingHandle) }
@@ -121,6 +111,44 @@ func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Doub
     }
 
     defer { rp_pairing_file_free(pairingHandle) }
+
+    // 尝试多个地址建立连接：
+    // 1. 127.0.0.1 — 本机直连（无需 VPN，最常见）
+    // 2. 用户配置的 deviceIP — 可能是局域网 IP
+    // 3. 10.7.0.1 — LocalDevVPN 回环地址（需要 VPN）
+    var candidateIPs: [String] = []
+    for ip in ["127.0.0.1", deviceIP, "10.7.0.1"] where !candidateIPs.contains(ip) {
+        candidateIPs.append(ip)
+    }
+
+    for targetIP in candidateIPs {
+        let code = trySimulateOnAddress(targetIP, latitude: latitude, longitude: longitude, pairingHandle: pairingHandle)
+        if code == LocationSimulationStatus.ok {
+            return code
+        }
+        // 连接失败则清理并尝试下一个地址
+        LocationSimulationState.cleanup()
+    }
+
+    return LocationSimulationStatus.providerCreate
+}
+
+/// 尝试在指定地址上建立连接并设置模拟位置
+private func trySimulateOnAddress(
+    _ targetIP: String,
+    latitude: Double,
+    longitude: Double,
+    pairingHandle: OpaquePointer
+) -> Int32 {
+    // Build socket address
+    var address = sockaddr_in()
+    address.sin_family = sa_family_t(AF_INET)
+    address.sin_port = in_port_t(RemotePairingPortResolver.resolve(targetIPAddress: targetIP)).bigEndian
+
+    let inetResult = targetIP.withCString { inet_pton(AF_INET, $0, &address.sin_addr) }
+    guard inetResult == 1 else {
+        return LocationSimulationStatus.invalidIP
+    }
 
     // Create tunnel via RemotePairing
     let providerError = withUnsafePointer(to: &address) { pointer in
@@ -140,7 +168,6 @@ func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Doub
 
     if let providerError {
         idevice_error_free(providerError)
-        LocationSimulationState.cleanup()
         return LocationSimulationStatus.providerCreate
     }
 
@@ -152,7 +179,6 @@ func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Doub
     )
     if let remoteServerError {
         idevice_error_free(remoteServerError)
-        LocationSimulationState.cleanup()
         return LocationSimulationStatus.remoteServer
     }
 
@@ -163,7 +189,6 @@ func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Doub
     )
     if let locationSimulationError {
         idevice_error_free(locationSimulationError)
-        LocationSimulationState.cleanup()
         return LocationSimulationStatus.locationSimulation
     }
 
@@ -178,14 +203,13 @@ func simulate_location(_ deviceIP: String, _ latitude: Double, _ longitude: Doub
     )
     if let locationSetError {
         idevice_error_free(locationSetError)
-        LocationSimulationState.cleanup()
         return LocationSimulationStatus.locationSet
     }
 
     // Post connection notification
     NotificationCenter.default.post(
         name: .locationTunnelConnected,
-        object: "Connected to \(deviceIP)"
+        object: "Connected to \(targetIP)"
     )
     return LocationSimulationStatus.ok
 }

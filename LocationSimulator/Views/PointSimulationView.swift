@@ -145,12 +145,11 @@ struct ConnectionStatusBanner: View {
         }
         .padding(12)
         .background(color.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
-        .alert("连接 LocalDevVPN", isPresented: $showVPNAlert) {
+        .alert("连接 VPN", isPresented: $showVPNAlert) {
             Button("打开 LocalDevVPN") { LocalDevVPNLink.open() }
-            Button("去 App Store 下载") { LocalDevVPNLink.openAppStore() }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("位置模拟需要 LocalDevVPN 回环隧道。请确保已安装并启用 LocalDevVPN，且 Wi-Fi 已连接。")
+            Text("位置模拟需要建立回环隧道。请打开 LocalDevVPN 并启用隧道。")
         }
     }
 }
@@ -488,10 +487,6 @@ struct PointSimulationView: View {
 
     private var actionButtons: some View {
         HStack(spacing: 12) {
-            ActionButton(title: "地图采集", icon: "map", color: .blue) {
-                focusedField = nil
-                // Map is already visible; just scroll to it or highlight
-            }
             ActionButton(title: "收藏", icon: "star.fill", color: .orange) {
                 focusedField = nil
                 favoriteNote = ""

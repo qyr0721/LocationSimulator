@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 struct SettingsDrawerView: View {
@@ -160,6 +161,43 @@ struct SettingsDrawerView: View {
                     Button("重新查看使用引导") {
                         showOnboarding = true
                     }
+
+                    // MARK: - Author
+                    Link(destination: URL(string: "https://github.com/qyr0721")!) {
+                        HStack(spacing: 12) {
+                            Group {
+                                if let img = UIImage(contentsOfFile: Bundle.main.path(forResource: "avatar", ofType: "jpg") ?? "") {
+                                    Image(uiImage: img).resizable().aspectRatio(contentMode: .fill)
+                                } else if let img = UIImage(named: "avatar") {
+                                    Image(uiImage: img).resizable().aspectRatio(contentMode: .fill)
+                                } else {
+                                    Image(systemName: "person.circle.fill")
+                                        .resizable().aspectRatio(contentMode: .fit)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .frame(width: 40, height: 40)
+                            .clipShape(Circle())
+                            .overlay(Circle().stroke(Color(.separator), lineWidth: 1))
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Hikari")
+                                    .font(.system(size: 15, weight: .medium))
+                                    .foregroundStyle(.primary)
+                                Text("作者 · GitHub")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+
+                            Spacer()
+
+                            Image(systemName: "arrow.up.right.circle.fill")
+                                .font(.system(size: 18))
+                                .foregroundStyle(.blue)
+                        }
+                        .padding(.vertical, 4)
+                    }
+
                     Text("地图数据 © Apple；路线限速数据 © OpenStreetMap contributors (ODbL)。")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
