@@ -12,5 +12,6 @@ extension UserDefaults {
         static let keepAliveAudio = "keepAliveAudio"
         static let chinaCoordinateCorrection = "chinaCoordinateCorrection"
         static let externalCoordinatesAreGCJ02 = "externalCoordinatesAreGCJ02"
+        static let hasCompletedOnboarding = "hasCompletedOnboarding"
     }
 }

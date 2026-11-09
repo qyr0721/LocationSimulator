@@ -1,0 +1,129 @@
+name: iOS Build
+
+# 纯编译验证：不需要签名证书、不需要 SSH 密钥、不需要 App Store 账号。
+# macOS runner 自带 Xcode，actions/checkout 使用 GitHub 自动注入的 GITHUB_TOKEN。
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+    branches: ['**']
+  workflow_dispatch:
+
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  build:
+    # 双工具链：Xcode 16 验证最低基线（走 glassEffect 的编译期兜底分支），
+    # Xcode 26 验证 iOS 26 SDK 下的液态玻璃分支，两条交付路径都覆盖。
+    name: Compile (Xcode ${{ matrix.xcode }} / arm64 device)
+    runs-on: macos-15
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        xcode: ['16.4', '26']
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode ${{ matrix.xcode }}
+        run: |
+          if [ "${{ matrix.xcode }}" = "26" ]; then
+            XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort | tail -1)
+          else
+            XCODE=/Applications/Xcode_16.4.app
+            [ -d "$XCODE" ] || XCODE=$(ls -d /Applications/Xcode_16*.app 2>/dev/null | sort | tail -1)
+          fi
+          if [ -z "$XCODE" ] || [ ! -d "$XCODE" ]; then
+            echo "::error::未找到 Xcode ${{ matrix.xcode }}，请检查 runner 镜像"; exit 1
+          fi
+          sudo xcode-select -s "$XCODE"
+          xcodebuild -version
+          xcodebuild -showsdks | grep -i 'ios' || true
+
+      - name: Install XcodeGen
+        run: |
+          brew install xcodegen
+          xcodegen --version
+
+      - name: Generate Xcode project
+        working-directory: LocationSimulator
+        run: xcodegen generate --spec project.yml --quiet
+
+      # 说明：libidevice_ffi.a 只含 arm64 (iOS device) slice，没有 simulator slice，
+      # 所以必须用 generic/platform=iOS 编译；配合 CODE_SIGNING_ALLOWED=NO 只编译不签名。
+      - name: Build (no code signing)
+        working-directory: LocationSimulator
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/locsim"
+          xcodebuild build \
+            -project LocationSimulator.xcodeproj \
+            -scheme LocationSimulator \
+            -configuration Debug \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/locsim/DerivedData" \
+            ARCHS=arm64 \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            DEVELOPMENT_TEAM="" \
+            2>&1 | tee "$RUNNER_TEMP/locsim/xcodebuild.log"
+
+      - name: Error summary
+        if: failure()
+        run: |
+          echo "=== 编译错误/警告摘要 ==="
+          grep -E '(error:|fatal error:|warning:|Undefined symbol|ld:)' \
+            "$RUNNER_TEMP/locsim/xcodebuild.log" | head -100 || true
+          echo "=== 日志尾部 ==="
+          tail -60 "$RUNNER_TEMP/locsim/xcodebuild.log" || true
+
+      # 未签名 IPA：标准 Payload/xxx.app 结构。因为 CI 没有签名证书，
+      # 这个包用于 TrollStore 安装，或作为 Sideloadly / AltStore 重签名的输入。
+      - name: Package unsigned IPA
+        if: success()
+        run: |
+          APP="$RUNNER_TEMP/locsim/DerivedData/Build/Products/Debug-iphoneos/LocationSimulator.app"
+          test -d "$APP" || { echo "::error::未找到编译产物 .app"; exit 1; }
+          STAGE="$RUNNER_TEMP/locsim/ipa"
+          IPA="$RUNNER_TEMP/locsim/LocationSimulator-unsigned-${{ matrix.xcode }}.ipa"
+          rm -rf "$STAGE" "$IPA"
+          mkdir -p "$STAGE/Payload"
+          cp -R "$APP" "$STAGE/Payload/LocationSimulator.app"
+          (cd "$STAGE" && zip -qry "$IPA" Payload)
+          ls -lh "$IPA"
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log-${{ matrix.xcode }}-${{ github.run_number }}
+          path: ${{ runner.temp }}/locsim/xcodebuild.log
+          if-no-files-found: ignore
+
+      - name: Upload unsigned .app
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: LocationSimulator-unsigned-app-${{ matrix.xcode }}-${{ github.run_number }}
+          path: ${{ runner.temp }}/locsim/DerivedData/Build/Products/Debug-iphoneos/LocationSimulator.app
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload unsigned IPA
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: LocationSimulator-unsigned-ipa-${{ matrix.xcode }}-${{ github.run_number }}
+          path: ${{ runner.temp }}/locsim/LocationSimulator-unsigned-${{ matrix.xcode }}.ipa
+          if-no-files-found: error
+          retention-days: 14

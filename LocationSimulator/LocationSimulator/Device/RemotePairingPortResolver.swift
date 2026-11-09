@@ -5,21 +5,47 @@
 //  Discovers the Remote Pairing TCP port via Bonjour (_remotepairing._tcp).
 //  Extracted from StikDebug's JITEnableContext.swift.
 //
+//  改动：Bonjour 发现改为后台预取 + 缓存，不再在 simulate_location 的调用栈里
+//  同步等待 5 秒。FFI 首次连接直接使用默认端口（或已缓存端口），解析成功后
+//  结果写入缓存供后续连接使用。
+//
 
 import Foundation
 import Darwin
 import Network
+
+extension Notification.Name {
+    static let remotePairingPortUpdated = Notification.Name("remotePairingPortUpdated")
+}
 
 final class RemotePairingPortResolver {
     static let fallback: UInt16 = 49152
     private static let overrideKey = "TunnelRemotePairingPort"
     private static let stateLock = NSLock()
     private static var selectedEndpoint = "Not attempted yet"
+    private static let cacheTTL: TimeInterval = 120
+
+    private static var cachedPortValue: UInt16?
+    private static var cachedPortIP: String?
+    private static var cachedPortDate: Date?
+    private static var isPrefetching = false
 
     static var lastAttemptDescription: String {
         stateLock.lock()
         defer { stateLock.unlock() }
         return selectedEndpoint
+    }
+
+    /// 未过期且与当前目标 IP 匹配的缓存端口。
+    static func cachedPort(for ip: String = DeviceConnectionContext.targetIPAddress) -> UInt16? {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        guard let port = cachedPortValue,
+              let cachedIP = cachedPortIP,
+              cachedIP == ip,
+              let date = cachedPortDate,
+              Date().timeIntervalSince(date) < cacheTTL else { return nil }
+        return port
     }
 
     private static func record(targetIPAddress: String, port: UInt16, source: String) {
@@ -30,16 +56,40 @@ final class RemotePairingPortResolver {
         NSLog("[LocationSimulator] Remote Pairing selected endpoint: %@", endpoint)
     }
 
-    private let discoveryQueue = DispatchQueue(label: "com.locationsimulator.remotePairingDiscovery")
-    private let completion = DispatchSemaphore(value: 0)
-    private var browser: NWBrowser?
-    private var connection: NWConnection?
-    private var selectedService: NWEndpoint?
-    private var selectedLoopback = false
-    private var resolvedPort: UInt16?
-    private var finished = false
+    private static func store(port: UInt16, ip: String, source: String) {
+        stateLock.lock()
+        cachedPortValue = port
+        cachedPortIP = ip
+        cachedPortDate = Date()
+        isPrefetching = false
+        stateLock.unlock()
+        record(targetIPAddress: ip, port: port, source: source)
+    }
 
-    static func resolve(targetIPAddress: String = DeviceConnectionContext.targetIPAddress, timeout: TimeInterval = 5) -> UInt16 {
+    private static func beginPrefetch(ip: String) -> Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        if isPrefetching { return false }
+        isPrefetching = true
+        return true
+    }
+
+    /// 在后台解析端口并写缓存；App 启动、网络变化、页面出现时都会调用。
+    static func prefetch(
+        targetIPAddress: String = DeviceConnectionContext.targetIPAddress,
+        timeout: TimeInterval = 1.2
+    ) {
+        guard cachedPort(for: targetIPAddress) == nil else { return }
+        guard beginPrefetch(ip: targetIPAddress) else { return }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let result = discover(targetIPAddress: targetIPAddress, timeout: timeout)
+            store(port: result.port, ip: targetIPAddress, source: result.source)
+            NotificationCenter.default.post(name: .remotePairingPortUpdated, object: result.port)
+        }
+    }
+
+    /// 供 FFI 调用：零等待。返回手动覆盖值或缓存端口，否则先用默认端口并触发后台解析。
+    static func resolve(targetIPAddress: String = DeviceConnectionContext.targetIPAddress) -> UInt16 {
         let override = (UserDefaults.standard.string(forKey: overrideKey) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if !override.isEmpty, let port = UInt16(override), port != 0 {
@@ -47,12 +97,20 @@ final class RemotePairingPortResolver {
             return port
         }
 
-        let result = discover(targetIPAddress: targetIPAddress, timeout: timeout)
-        record(targetIPAddress: targetIPAddress, port: result.port, source: result.source)
-        return result.port
+        if let cached = cachedPort(for: targetIPAddress) {
+            record(targetIPAddress: targetIPAddress, port: cached, source: "Cache")
+            return cached
+        }
+
+        prefetch(targetIPAddress: targetIPAddress, timeout: 1.2)
+        record(targetIPAddress: targetIPAddress, port: fallback, source: "Default (discovering)")
+        return fallback
     }
 
-    static func discover(targetIPAddress: String = DeviceConnectionContext.targetIPAddress, timeout: TimeInterval = 5) -> (port: UInt16, source: String) {
+    static func discover(
+        targetIPAddress: String = DeviceConnectionContext.targetIPAddress,
+        timeout: TimeInterval = 1.2
+    ) -> (port: UInt16, source: String) {
         if targetIPAddress != DeviceConnectionContext.defaultTargetIPAddress {
             var peer = sockaddr_in()
             peer.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
@@ -89,6 +147,15 @@ final class RemotePairingPortResolver {
     ) -> (endpoint: NWEndpoint, isLoopback: Bool)? {
         candidates.first(where: { $0.isLoopback }) ?? candidates.first
     }
+
+    private let discoveryQueue = DispatchQueue(label: "com.locationsimulator.remotePairingDiscovery")
+    private let completion = DispatchSemaphore(value: 0)
+    private var browser: NWBrowser?
+    private var connection: NWConnection?
+    private var selectedService: NWEndpoint?
+    private var selectedLoopback = false
+    private var resolvedPort: UInt16?
+    private var finished = false
 
     private func startDiscovery() {
         guard !finished else { return }

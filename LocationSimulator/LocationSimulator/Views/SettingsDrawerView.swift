@@ -15,14 +15,49 @@ struct SettingsDrawerView: View {
     @AppStorage(UserDefaults.Keys.keepAliveLocation) private var keepAliveLocation = true
     @AppStorage(UserDefaults.Keys.keepAliveAudio) private var keepAliveAudio = false
 
+    @ObservedObject private var preflight = ConnectionPreflight.shared
+
     @State private var showPairingImporter = false
     @State private var pairingImportMessage: String?
     @State private var pairingExists = PairingFileStore.exists
     @State private var showOnDevicePairing = false
+    @State private var showOnboarding = false
 
     var body: some View {
         NavigationStack {
             List {
+                // MARK: - Connection status
+                Section {
+                    HStack(spacing: 10) {
+                        Image(systemName: preflight.snapshot.blockingIssue?.systemImage ?? "checkmark.circle.fill")
+                            .font(.system(size: 18))
+                            .foregroundStyle(preflight.snapshot.isReady ? .green : .orange)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(preflight.snapshot.statusText)
+                                .font(.system(size: 15, weight: .medium))
+                            Text("Wi-Fi \(preflight.snapshot.usesWiFi ? "已连接" : "未连接") · 回环隧道 \(preflight.snapshot.hasVPNInterface ? "已建立" : "未建立")")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        if preflight.isProbing { ProgressView().scaleEffect(0.8) }
+                    }
+                    if let issue = preflight.snapshot.blockingIssue {
+                        Text(issue.message)
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                    }
+                    Button {
+                        preflight.refresh()
+                    } label: {
+                        Label("重新检测连接", systemImage: "arrow.clockwise")
+                    }
+                } header: {
+                    Text("连接状态")
+                } footer: {
+                    Text("状态随网络变化实时更新；点击「启动模拟」时会立即校验，无需等待检查完成。")
+                }
+
                 // MARK: - Connection
                 Section {
                     HStack {
@@ -38,7 +73,7 @@ struct SettingsDrawerView: View {
                 } header: {
                     Text("连接")
                 } footer: {
-                    Text("LocalDevVPN 回环模式下默认 127.0.0.1")
+                    Text("LocalDevVPN 回环模式下默认 10.7.0.1")
                 }
 
                 // MARK: - Pairing
@@ -77,6 +112,7 @@ struct SettingsDrawerView: View {
                             try? PairingFileStore.remove()
                             pairingExists = PairingFileStore.exists
                             pairingImportMessage = "配对文件已删除。"
+                            preflight.refreshLocal()
                         }
                     }
 
@@ -121,6 +157,12 @@ struct SettingsDrawerView: View {
                         Text("StikDebug (AGPL-3.0)")
                             .foregroundStyle(.secondary)
                     }
+                    Button("重新查看使用引导") {
+                        showOnboarding = true
+                    }
+                    Text("地图数据 © Apple；路线限速数据 © OpenStreetMap contributors (ODbL)。")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 } header: {
                     Text("关于")
                 }
@@ -143,10 +185,16 @@ struct SettingsDrawerView: View {
                 importPairingFile(result)
             }
             .sheet(isPresented: $showOnDevicePairing) {
-                OnDevicePairingView(service: OnDevicePairingService.shared)
+                NavigationStack {
+                    OnDevicePairingView(service: OnDevicePairingService.shared)
+                }
+            }
+            .sheet(isPresented: $showOnboarding) {
+                OnboardingView()
             }
             .onAppear {
                 pairingExists = PairingFileStore.exists
+                preflight.refresh()
             }
         }
     }
@@ -160,6 +208,7 @@ struct SettingsDrawerView: View {
                 pairingExists = PairingFileStore.exists
                 pairingImportMessage = "配对文件导入成功。"
                 NotificationCenter.default.post(name: .pairingFileImported, object: nil)
+                preflight.refreshLocal()
             } catch {
                 pairingImportMessage = "导入失败: \(error.localizedDescription)"
             }

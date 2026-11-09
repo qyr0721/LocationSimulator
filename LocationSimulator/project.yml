@@ -62,6 +62,8 @@ targets:
           - location
         UISupportsDocumentBrowser: false
         LSSupportsOpeningDocumentsInPlace: true
+        LSApplicationQueriesSchemes:
+          - localdevvpn
         CFBundleDocumentTypes:
           - CFBundleTypeName: Coordinate File
             LSItemContentTypes:
