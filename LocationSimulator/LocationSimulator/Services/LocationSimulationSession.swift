@@ -80,20 +80,31 @@ final class LocationSimulationSession: ObservableObject {
             let code = self.sendToDevice(coordinate: mapCoord)
             DispatchQueue.main.async {
                 if code == 0 {
-                    self.startResendLoop(coordinate: mapCoord)
+                    self.startResendLoop()
                 }
             }
         }
     }
 
+    /// 模拟进行中实时更新坐标：立即向设备下发，并让重发循环使用新坐标。
+    /// 地图选点、搜索、历史/收藏选择、手动输入经纬度都会走这里，无需停止再重启。
+    func updateSimulation(to mapCoord: CLLocationCoordinate2D) {
+        guard isActive else { return }
+        coordinate = mapCoord
+        LocationSimulationCommandQueue.shared.async { [weak self] in
+            _ = self?.sendToDevice(coordinate: mapCoord)
+        }
+    }
+
     // MARK: - Resend loop
 
-    private func startResendLoop(coordinate mapCoord: CLLocationCoordinate2D) {
+    /// 重发循环始终读取会话当前坐标，因此坐标变化后 4 秒内的自动重发也会用新值。
+    private func startResendLoop() {
         resendTimer?.invalidate()
         let timer = Timer(timeInterval: 4, repeats: true) { [weak self] _ in
-            guard let self else { return }
+            guard let self, let current = self.coordinate else { return }
             LocationSimulationCommandQueue.shared.async {
-                _ = self.sendToDevice(coordinate: mapCoord)
+                _ = self.sendToDevice(coordinate: current)
             }
         }
         RunLoop.main.add(timer, forMode: .common)
@@ -155,41 +166,39 @@ final class LocationSimulationSession: ObservableObject {
             _ = self.sendToDevice(coordinate: coordinates[0])
 
             // Start playback loop
-            self.routePlaybackTask = Task {
-                var lastCoord = coordinates[0]
+                self.routePlaybackTask = Task {
+                    // 不再在并发闭包里捕获可变的 lastCoord：会话当前坐标就是
+                    // 最近一次成功下发的位置，重发循环会直接读取它。这样既避免
+                    // Swift 6 的并发捕获错误，也保证实时改点后重发用新坐标。
+                    for sample in samples.dropFirst() {
+                        try? await Task.sleep(for: .seconds(sample.delay))
+                        guard !Task.isCancelled, self.isCurrentRoute(routeID) else { return }
 
-                for sample in samples.dropFirst() {
-                    try? await Task.sleep(for: .seconds(sample.delay))
-                    guard !Task.isCancelled, self.isCurrentRoute(routeID) else { return }
+                        let target = jitterMeters > 0 ? self.applyJitter(to: sample.coordinate, meters: jitterMeters) : sample.coordinate
 
-                    // Apply jitter
-                    let target = jitterMeters > 0 ? self.applyJitter(to: sample.coordinate, meters: jitterMeters) : sample.coordinate
+                        let code = await self.sendLocationUpdateAsync(coordinate: target)
+                        guard self.isCurrentRoute(routeID) else { return }
 
-                    let code = await self.sendLocationUpdateAsync(coordinate: target)
-                    guard self.isCurrentRoute(routeID) else { return }
-
-                    if code != 0 {
-                        await MainActor.run {
-                            self.lastError = "路线回放失败 (code \(code))"
-                            // Fall back to resend loop at last position
-                            self.startResendLoop(coordinate: lastCoord)
+                        if code != 0 {
+                            await MainActor.run {
+                                self.lastError = "路线回放失败 (code \(code))"
+                                self.startResendLoop()
+                            }
+                            return
                         }
-                        return
+
+                        await MainActor.run {
+                            self.updateCoordinate(target)
+                        }
                     }
 
-                    lastCoord = target
+                    // Route finished — keep resending the current (last) coordinate
                     await MainActor.run {
-                        self.updateCoordinate(target)
+                        guard self.isCurrentRoute(routeID) else { return }
+                        self.clearRoute()
+                        self.startResendLoop()
                     }
                 }
-
-                // Route finished — keep resending last coordinate
-                await MainActor.run {
-                    guard self.isCurrentRoute(routeID) else { return }
-                    self.clearRoute()
-                    self.startResendLoop(coordinate: lastCoord)
-                }
-            }
         }
     }
 

@@ -898,12 +898,18 @@ struct LocationSimulationView: View {
 
     @ViewBuilder
     private var searchResultsList: some View {
+        // 见 PointSimulationView：glassEffect 需要编译期保护，
+        // 否则 Xcode 16 / iOS 18 SDK 会因为找不到符号而编译失败。
+        #if compiler(>=6.2)
         if #available(iOS 26, *) {
             searchResultsListBase
                 .glassEffect(in: .rect(cornerRadius: 12))
         } else {
             searchResultsListBase
         }
+        #else
+        searchResultsListBase
+        #endif
     }
 
     var body: some View {

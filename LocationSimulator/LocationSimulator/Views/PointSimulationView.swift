@@ -38,6 +38,8 @@ final class SearchCompleter: NSObject, ObservableObject, MKLocalSearchCompleterD
 
 final class UserLocationProvider: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var userCoordinate: CLLocationCoordinate2D?
+    /// Bool 可参与 onChange，避免 CLLocationCoordinate2D 非 Equatable 的问题
+    @Published var userLocationReady = false
     private let manager = CLLocationManager()
 
     override init() {
@@ -53,7 +55,10 @@ final class UserLocationProvider: NSObject, ObservableObject, CLLocationManagerD
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let loc = locations.last else { return }
-        DispatchQueue.main.async { self.userCoordinate = loc.coordinate }
+        DispatchQueue.main.async {
+            self.userCoordinate = loc.coordinate
+            self.userLocationReady = true
+        }
         manager.stopUpdatingLocation()
     }
 
@@ -64,62 +69,88 @@ final class UserLocationProvider: NSObject, ObservableObject, CLLocationManagerD
 
 struct ConnectionStatusBanner: View {
     @ObservedObject var session: LocationSimulationSession
+    @ObservedObject private var preflight = ConnectionPreflight.shared
     @State private var showVPNAlert = false
 
     var body: some View {
-        if let error = session.lastError {
-            HStack(spacing: 10) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("设备未连接")
-                        .font(.subheadline.weight(.semibold))
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
-                Spacer()
-                Button("连接 VPN") {
-                    showVPNAlert = true
+        if session.isSimulating {
+            statusRow(
+                icon: "checkmark.circle.fill",
+                color: .green,
+                title: "正在模拟位置",
+                detail: session.connectionStatus ?? ""
+            ) {
+                Image(systemName: "location.fill").foregroundStyle(.blue)
+            }
+        } else if let error = session.lastError {
+            statusRow(
+                icon: "exclamationmark.triangle.fill",
+                color: .orange,
+                title: "设备未连接",
+                detail: error
+            ) {
+                Button("连接 VPN") { showVPNAlert = true }
+                    .font(.caption.weight(.medium))
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.capsule)
+            }
+        } else if let issue = preflight.snapshot.blockingIssue {
+            statusRow(
+                icon: issue.systemImage,
+                color: .orange,
+                title: issue.title,
+                detail: issue.message
+            ) {
+                Button(issue == .vpnNotConnected ? "连接 VPN" : "重新检测") {
+                    if issue == .vpnNotConnected {
+                        showVPNAlert = true
+                    } else {
+                        preflight.refresh()
+                    }
                 }
                 .font(.caption.weight(.medium))
                 .buttonStyle(.borderedProminent)
                 .buttonBorderShape(.capsule)
             }
-            .padding(12)
-            .background(.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
-            .alert("连接 LocalDevVPN", isPresented: $showVPNAlert) {
-                Button("打开 LocalDevVPN") {
-                    if let url = URL(string: "localdevvpn://enable?scheme=locationsimulator") {
-                        UIApplication.shared.open(url) { ok in
-                            if !ok {
-                                UIApplication.shared.open(URL(string: "https://apps.apple.com/us/app/localdevvpn/id6755608044")!)
-                            }
-                        }
-                    }
-                }
-                Button("取消", role: .cancel) {}
-            } message: {
-                Text("位置模拟需要 LocalDevVPN 回环隧道。请确保已安装并启用 LocalDevVPN，且 WiFi 已连接。")
+        } else {
+            statusRow(
+                icon: "checkmark.circle.fill",
+                color: .green,
+                title: "连接已就绪",
+                detail: preflight.snapshot.statusText
+            ) {
+                EmptyView()
             }
-        } else if session.isSimulating {
-            HStack(spacing: 10) {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("正在模拟位置")
-                        .font(.subheadline.weight(.semibold))
-                    Text(session.connectionStatus ?? "")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                Image(systemName: "location.fill")
-                    .foregroundStyle(.blue)
+        }
+    }
+
+    private func statusRow<Accessory: View>(
+        icon: String,
+        color: Color,
+        title: String,
+        detail: String,
+        @ViewBuilder accessory: () -> Accessory
+    ) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon).foregroundStyle(color)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.subheadline.weight(.semibold))
+                Text(detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
             }
-            .padding(12)
-            .background(.green.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+            Spacer()
+            accessory()
+        }
+        .padding(12)
+        .background(color.opacity(0.1), in: RoundedRectangle(cornerRadius: 12))
+        .alert("连接 LocalDevVPN", isPresented: $showVPNAlert) {
+            Button("打开 LocalDevVPN") { LocalDevVPNLink.open() }
+            Button("去 App Store 下载") { LocalDevVPNLink.openAppStore() }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("位置模拟需要 LocalDevVPN 回环隧道。请确保已安装并启用 LocalDevVPN，且 Wi-Fi 已连接。")
         }
     }
 }
@@ -132,6 +163,7 @@ struct PointSimulationView: View {
     @StateObject private var session = LocationSimulationSession.shared
     @StateObject private var searchCompleter = SearchCompleter()
     @StateObject private var locationProvider = UserLocationProvider()
+    @ObservedObject private var preflight = ConnectionPreflight.shared
 
     // MARK: - Coordinate State
     @State private var latitude: String = ""
@@ -166,6 +198,8 @@ struct PointSimulationView: View {
 
     // MARK: - UI State
     @State private var isSimulating: Bool = false
+    @State private var preflightIssue: PreflightIssue?
+    @State private var liveUpdateTask: Task<Void, Never>?
 
     // MARK: - Body
 
@@ -234,65 +268,63 @@ struct PointSimulationView: View {
             } message: {
                 Text("为该位置添加备注，留空则以坐标命名")
             }
+            // 启动前预检拦截
+            .alert("暂不能启动模拟", isPresented: Binding(
+                get: { preflightIssue != nil },
+                set: { presented in if !presented { preflightIssue = nil } }
+            )) {
+                if preflightIssue == .vpnNotConnected {
+                    Button("打开 LocalDevVPN") { LocalDevVPNLink.open() }
+                }
+                Button("好", role: .cancel) {}
+            } message: {
+                if let issue = preflightIssue {
+                    Text("\(issue.title)：\(issue.message)")
+                }
+            }
             // History sheet
             .sheet(isPresented: $showHistory) {
                 LocationHistorySheet(
-                    items: historyItems,
+                    items: $historyItems,
+                    kind: .history,
+                    title: "历史记录",
                     onSelect: { item in
-                        latitude = String(format: "%.6f", item.latitude)
-                        longitude = String(format: "%.6f", item.longitude)
-                        altitude = String(format: "%.1f", item.altitude)
-                        selectedMapCoord = item.coordinate
+                        applyItem(item)
                         showHistory = false
                     },
-                    onFavorite: { item in
-                        if !favoriteItems.contains(item) {
-                            favoriteItems.append(item)
-                            LocationItem.saveFavorites(favoriteItems)
-                        }
-                    },
-                    title: "历史记录"
+                    onFavorite: { item in addToFavorites(item) }
                 )
             }
             // Favorites sheet
             .sheet(isPresented: $showFavorites) {
                 LocationHistorySheet(
-                    items: favoriteItems,
+                    items: $favoriteItems,
+                    kind: .favorites,
+                    title: "收藏",
                     onSelect: { item in
-                        latitude = String(format: "%.6f", item.latitude)
-                        longitude = String(format: "%.6f", item.longitude)
-                        altitude = String(format: "%.1f", item.altitude)
-                        selectedMapCoord = item.coordinate
+                        applyItem(item)
                         showFavorites = false
-                    },
-                    onFavorite: { item in
-                        favoriteItems.removeAll { $0 == item }
-                        LocationItem.saveFavorites(favoriteItems)
-                    },
-                    title: "收藏"
+                    }
                 )
             }
             .onAppear {
                 locationProvider.request()
-                if latitude.isEmpty {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                        if let userCoord = locationProvider.userCoordinate, latitude.isEmpty {
-                            latitude = String(format: "%.6f", userCoord.latitude)
-                            longitude = String(format: "%.6f", userCoord.longitude)
-                            selectedMapCoord = userCoord
-                            mapCameraPosition = .region(MKCoordinateRegion(
-                                center: userCoord,
-                                latitudinalMeters: 800,
-                                longitudinalMeters: 800
-                            ))
-                        } else if latitude.isEmpty {
-                            // Default to Beijing if no location available
-                            latitude = "39.9042"
-                            longitude = "116.4074"
-                        }
+                preflight.refresh()
+                // 没有定位权限时兜底，不再等 1.5 秒
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    if latitude.isEmpty && locationProvider.userCoordinate == nil {
+                        latitude = "39.9042"
+                        longitude = "116.4074"
                     }
                 }
             }
+            .onChange(of: locationProvider.userLocationReady) { _, ready in
+                guard ready, latitude.isEmpty, let coord = locationProvider.userCoordinate else { return }
+                applyUserCoordinate(coord)
+            }
+            // 模拟进行中，坐标任何来源的修改都实时下发
+            .onChange(of: latitude) { _, _ in scheduleLiveUpdate() }
+            .onChange(of: longitude) { _, _ in scheduleLiveUpdate() }
         }
     }
 
@@ -367,11 +399,15 @@ struct PointSimulationView: View {
             }
             .frame(height: 220)
             .clipShape(RoundedRectangle(cornerRadius: 16))
+            .overlay(alignment: .bottomLeading) {
+                // 去掉 MapKit 自动插入的左下角 Legal 链接
+                MapLegalHider()
+                    .frame(width: 1, height: 1)
+                    .allowsHitTesting(false)
+            }
             .onTapGesture { screenPoint in
                 if let coord = proxy.convert(screenPoint, from: .local) {
-                    selectedMapCoord = coord
-                    latitude = String(format: "%.6f", coord.latitude)
-                    longitude = String(format: "%.6f", coord.longitude)
+                    applyMapCoordinate(coord)
                 }
             }
         }
@@ -468,6 +504,10 @@ struct PointSimulationView: View {
 
     @ViewBuilder
     private var searchResultsOverlay: some View {
+        // glassEffect 是 iOS 26 SDK 才引入的 API。`#available` 只做运行时判断，
+        // 编译器仍需要 SDK 里存在该符号，所以还要用编译期条件包一层，
+        // 保证 Xcode 16 (iOS 18 SDK) 也能编译；Xcode 26 下仍走液态玻璃。
+        #if compiler(>=6.2)
         if #available(iOS 26, *) {
             searchResultsListBase
                 .glassEffect(in: .rect(cornerRadius: 16))
@@ -475,6 +515,10 @@ struct PointSimulationView: View {
             searchResultsListBase
                 .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
         }
+        #else
+        searchResultsListBase
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+        #endif
     }
 
     private var searchResultsListBase: some View {
@@ -539,21 +583,83 @@ struct PointSimulationView: View {
         if isSimulating {
             session.stop()
             isSimulating = false
-        } else {
-            guard let lat = Double(latitude), let lon = Double(longitude) else {
-                session.lastError = "请输入有效的经纬度"
-                return
-            }
-            let coord = CLLocationCoordinate2D(latitude: lat, longitude: lon)
-            session.startSimulation(at: coord)
-            isSimulating = true
-
-            // Add to history
-            let item = LocationItem(latitude: lat, longitude: lon, altitude: Double(altitude) ?? 50.0)
-            historyItems.insert(item, at: 0)
-            if historyItems.count > 50 { historyItems.removeLast() }
-            LocationItem.saveHistory(historyItems)
+            return
         }
+        guard let lat = Double(latitude), let lon = Double(longitude),
+              lat >= -90, lat <= 90, lon >= -180, lon <= 180 else {
+            session.lastError = "请输入有效的经纬度"
+            return
+        }
+        // 即时网关：零等待，避免没连 VPN 时误启动
+        if let issue = preflight.instantGate() {
+            preflightIssue = issue
+            return
+        }
+
+        let coord = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        session.startSimulation(at: coord)
+        isSimulating = true
+
+        // Add to history
+        let item = LocationItem(latitude: lat, longitude: lon, altitude: Double(altitude) ?? 50.0)
+        historyItems.insert(item, at: 0)
+        if historyItems.count > 50 { historyItems.removeLast() }
+        LocationItem.saveHistory(historyItems)
+    }
+
+    /// 任何来源的坐标变化，在模拟进行中都实时下发给设备。
+    private func scheduleLiveUpdate() {
+        guard isSimulating else { return }
+        liveUpdateTask?.cancel()
+        liveUpdateTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 350_000_000)
+            guard !Task.isCancelled else { return }
+            applyCurrentCoordinateLive()
+        }
+    }
+
+    private func applyCurrentCoordinateLive() {
+        guard isSimulating,
+              let lat = Double(latitude), let lon = Double(longitude),
+              lat >= -90, lat <= 90, lon >= -180, lon <= 180 else { return }
+        let coord = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+        selectedMapCoord = coord
+        session.updateSimulation(to: coord)
+    }
+
+    private func applyMapCoordinate(_ coord: CLLocationCoordinate2D) {
+        selectedMapCoord = coord
+        latitude = String(format: "%.6f", coord.latitude)
+        longitude = String(format: "%.6f", coord.longitude)
+    }
+
+    private func applyUserCoordinate(_ coord: CLLocationCoordinate2D) {
+        selectedMapCoord = coord
+        latitude = String(format: "%.6f", coord.latitude)
+        longitude = String(format: "%.6f", coord.longitude)
+        mapCameraPosition = .region(MKCoordinateRegion(
+            center: coord,
+            latitudinalMeters: 800,
+            longitudinalMeters: 800
+        ))
+    }
+
+    private func applyItem(_ item: LocationItem) {
+        latitude = String(format: "%.6f", item.latitude)
+        longitude = String(format: "%.6f", item.longitude)
+        altitude = String(format: "%.1f", item.altitude)
+        selectedMapCoord = item.coordinate
+        mapCameraPosition = .region(MKCoordinateRegion(
+            center: item.coordinate,
+            latitudinalMeters: 800,
+            longitudinalMeters: 800
+        ))
+    }
+
+    private func addToFavorites(_ item: LocationItem) {
+        guard !favoriteItems.contains(where: { $0.id == item.id }) else { return }
+        favoriteItems.append(item)
+        LocationItem.saveFavorites(favoriteItems)
     }
 
     private func selectSearchResult(_ result: MKLocalSearchCompletion) {
@@ -593,6 +699,8 @@ struct PointSimulationView: View {
             LocationItem.saveFavorites(favoriteItems)
         }
         favoriteNote = ""
+        // 收藏即视为「保存当前位置」，模拟中同样立即生效
+        applyCurrentCoordinateLive()
     }
 }
 
@@ -654,16 +762,34 @@ struct LocationItem: Identifiable, Equatable, Codable {
     let latitude: Double
     let longitude: Double
     let altitude: Double
-    let note: String?
+    var note: String?
     let timestamp: Date
 
     init(latitude: Double, longitude: Double, altitude: Double, note: String? = nil) {
-        self.id = UUID()
+        self.init(id: UUID(), latitude: latitude, longitude: longitude,
+                  altitude: altitude, note: note, timestamp: Date())
+    }
+
+    private init(
+        id: UUID,
+        latitude: Double,
+        longitude: Double,
+        altitude: Double,
+        note: String?,
+        timestamp: Date
+    ) {
+        self.id = id
         self.latitude = latitude
         self.longitude = longitude
         self.altitude = altitude
         self.note = note
-        self.timestamp = Date()
+        self.timestamp = timestamp
+    }
+
+    /// 改名时保留 id 与时间戳，避免列表项被重新创建
+    func renamed(to newNote: String?) -> LocationItem {
+        LocationItem(id: id, latitude: latitude, longitude: longitude,
+                     altitude: altitude, note: newNote, timestamp: timestamp)
     }
 
     var coordinate: CLLocationCoordinate2D {
@@ -712,13 +838,21 @@ struct LocationItem: Identifiable, Equatable, Codable {
 
 // MARK: - History / Favorites Sheet
 
+enum LocationListKind {
+    case history
+    case favorites
+}
+
 struct LocationHistorySheet: View {
-    let items: [LocationItem]
-    let onSelect: (LocationItem) -> Void
-    let onFavorite: (LocationItem) -> Void
+    @Binding var items: [LocationItem]
+    let kind: LocationListKind
     var title: String = "历史记录"
+    let onSelect: (LocationItem) -> Void
+    var onFavorite: ((LocationItem) -> Void)?
 
     @Environment(\.dismiss) private var dismiss
+    @State private var renamingItem: LocationItem?
+    @State private var renameText = ""
 
     var body: some View {
         NavigationStack {
@@ -734,6 +868,9 @@ struct LocationHistorySheet: View {
                         onSelect(item)
                     } label: {
                         HStack {
+                            Image(systemName: kind == .favorites ? "star.fill" : "clock")
+                                .foregroundStyle(kind == .favorites ? .orange : .blue)
+                                .frame(width: 22)
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(item.displayName)
                                     .font(.system(size: 15, weight: .medium))
@@ -743,14 +880,35 @@ struct LocationHistorySheet: View {
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
-                            Button {
-                                onFavorite(item)
-                            } label: {
-                                Image(systemName: "star.fill")
-                                    .foregroundStyle(.orange)
-                            }
-                            .buttonStyle(.plain)
                         }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    // 右滑：删除 / 加入收藏
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button(role: .destructive) {
+                            delete(item)
+                        } label: {
+                            Label("删除", systemImage: "trash")
+                        }
+                        if kind == .history {
+                            Button {
+                                onFavorite?(item)
+                            } label: {
+                                Label("收藏", systemImage: "star.fill")
+                            }
+                            .tint(.orange)
+                        }
+                    }
+                    // 左滑：改名
+                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                        Button {
+                            renamingItem = item
+                            renameText = item.note ?? ""
+                        } label: {
+                            Label("改名", systemImage: "pencil")
+                        }
+                        .tint(.blue)
                     }
                 }
             }
@@ -761,6 +919,40 @@ struct LocationHistorySheet: View {
                     Button("关闭") { dismiss() }
                 }
             }
+            .alert("修改名称", isPresented: Binding(
+                get: { renamingItem != nil },
+                set: { presented in if !presented { renamingItem = nil } }
+            )) {
+                TextField("名称", text: $renameText)
+                Button("保存") { commitRename() }
+                Button("取消", role: .cancel) { renamingItem = nil }
+            } message: {
+                Text("留空则恢复为坐标名称")
+            }
+        }
+    }
+
+    private func commitRename() {
+        guard let target = renamingItem,
+              let index = items.firstIndex(where: { $0.id == target.id }) else {
+            renamingItem = nil
+            return
+        }
+        let trimmed = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+        items[index] = target.renamed(to: trimmed.isEmpty ? nil : trimmed)
+        persist()
+        renamingItem = nil
+    }
+
+    private func delete(_ item: LocationItem) {
+        items.removeAll { $0.id == item.id }
+        persist()
+    }
+
+    private func persist() {
+        switch kind {
+        case .history: LocationItem.saveHistory(items)
+        case .favorites: LocationItem.saveFavorites(items)
         }
     }
 }

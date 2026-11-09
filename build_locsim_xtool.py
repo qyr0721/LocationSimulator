@@ -100,6 +100,8 @@ def main() -> None:
         "CFBundleDevelopmentRegion": "en",
         "ITSAppUsesNonExemptEncryption": False,
         "LSSupportsOpeningDocumentsInPlace": True,
+        # 允许检测 / 打开 LocalDevVPN
+        "LSApplicationQueriesSchemes": ["localdevvpn"],
         # 显式启用 iOS 26 液态玻璃设计语言
         "UIDesignRequiresCompatibility": False,
         # Bonjour 服务声明（配对发现必需，iOS 强制要求）
