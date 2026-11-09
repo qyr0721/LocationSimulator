@@ -24,19 +24,36 @@ struct SettingsDrawerView: View {
     @State private var showOnDevicePairing = false
     @State private var showOnboarding = false
 
+    /// 隧道是否已连接（严格两态，来自接口表事实）
+    private var tunnelConnected: Bool {
+        preflight.snapshot.tunnelStatus == .connected
+    }
+
+    /// 副标题：网络 / 隧道 / 设备服务（设备服务仅在探测有结论时出现）
+    private var connectionDetail: String {
+        var parts: [String] = [
+            "Wi-Fi \(preflight.snapshot.usesWiFi ? "已连接" : "未连接")",
+            "回环隧道 \(tunnelConnected ? "已建立" : "未建立")"
+        ]
+        if let service = preflight.snapshot.deviceServiceText {
+            parts.append(service)
+        }
+        return parts.joined(separator: " · ")
+    }
+
     var body: some View {
         NavigationStack {
             List {
                 // MARK: - Connection status
                 Section {
                     HStack(spacing: 10) {
-                        Image(systemName: preflight.snapshot.blockingIssue?.systemImage ?? "checkmark.circle.fill")
+                        Image(systemName: tunnelConnected ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
                             .font(.system(size: 18))
-                            .foregroundStyle(preflight.snapshot.isReady ? .green : .orange)
+                            .foregroundStyle(tunnelConnected ? .green : .orange)
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(preflight.snapshot.statusText)
+                            Text(preflight.snapshot.vpnTitle)
                                 .font(.system(size: 15, weight: .medium))
-                            Text("Wi-Fi \(preflight.snapshot.usesWiFi ? "已连接" : "未连接") · 回环隧道 \(preflight.snapshot.hasVPNInterface ? "已建立" : "未建立")")
+                            Text(connectionDetail)
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -56,7 +73,7 @@ struct SettingsDrawerView: View {
                 } header: {
                     Text("连接状态")
                 } footer: {
-                    Text("状态随网络变化实时更新；点击「启动模拟」时会立即校验，无需等待检查完成。")
+                    Text("隧道状态由系统接口表判定：utun 接口绑定 10.7.0.x 即为已连接。断开需连续 2 秒确认，避免 VPN 重连时状态闪烁。")
                 }
 
                 // MARK: - Connection

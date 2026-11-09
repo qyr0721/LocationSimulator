@@ -112,12 +112,35 @@ struct ConnectionStatusBanner: View {
                 .buttonStyle(.borderedProminent)
                 .buttonBorderShape(.capsule)
             }
+        } else if preflight.snapshot.showsTunnelStatus {
+            if preflight.snapshot.tunnelStatus == .connected {
+                statusRow(
+                    icon: "checkmark.circle.fill",
+                    color: .green,
+                    title: preflight.snapshot.vpnTitle,
+                    detail: preflight.snapshot.vpnDetail
+                ) {
+                    EmptyView()
+                }
+            } else {
+                statusRow(
+                    icon: "exclamationmark.circle.fill",
+                    color: .orange,
+                    title: preflight.snapshot.vpnTitle,
+                    detail: preflight.snapshot.vpnDetail
+                ) {
+                    Button("连接 VPN") { showVPNAlert = true }
+                        .font(.caption.weight(.medium))
+                        .buttonStyle(.borderedProminent)
+                        .buttonBorderShape(.capsule)
+                }
+            }
         } else {
             statusRow(
                 icon: "checkmark.circle.fill",
                 color: .green,
                 title: "连接已就绪",
-                detail: preflight.snapshot.statusText
+                detail: "目标设备 \(DeviceConnectionContext.targetIPAddress)（直连，无需回环隧道）"
             ) {
                 EmptyView()
             }

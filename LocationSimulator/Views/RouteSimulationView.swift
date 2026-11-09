@@ -408,7 +408,19 @@ struct RouteSimulationView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
             }
+
+            Text(samplingHint)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
+    }
+
+    /// 采样率说明：与真实 GPS 一致的 1 Hz
+    private var samplingHint: String {
+        let kph: Double = speedMode == .custom ? (Double(customSpeed) ?? 30) : speedMode.speedKPH
+        let mps = max(0.1, kph / 3.6)
+        return String(format: "按 1 Hz 推送定位（每秒 1 个点，每点前进约 %.1f 米），与真实 GPS 采样率一致", mps)
     }
 
     // MARK: - Jitter Section

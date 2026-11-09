@@ -24,15 +24,15 @@ enum LocationSimulationStatus {
 
     static func description(for code: Int32) -> String {
         switch code {
-        case ok: return "OK"
-        case invalidIP: return "Invalid device IP address"
-        case pairingRead: return "Failed to read pairing file"
-        case providerCreate: return "Failed to create tunnel provider"
-        case remoteServer: return "Failed to connect to remote server"
-        case locationSimulation: return "Failed to create location simulation service"
-        case locationSet: return "Failed to set simulated location"
-        case locationClear: return "Failed to clear simulated location"
-        default: return "Unknown error (\(code))"
+        case ok: return "成功"
+        case invalidIP: return "设备 IP 地址无效"
+        case pairingRead: return "配对文件读取失败"
+        case providerCreate: return "无法建立隧道连接"
+        case remoteServer: return "无法连接设备远程服务"
+        case locationSimulation: return "无法创建定位模拟服务"
+        case locationSet: return "设置模拟位置失败"
+        case locationClear: return "清除模拟位置失败"
+        default: return "未知错误 (\(code))"
         }
     }
 }

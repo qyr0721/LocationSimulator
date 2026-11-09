@@ -61,11 +61,11 @@ final class LocationSimulationSession: ObservableObject {
         DispatchQueue.main.async {
             if code == 0 {
                 self.lastError = nil
-                self.connectionStatus = "Connected to \(ip)"
-                NotificationCenter.default.post(name: .locationTunnelConnected, object: "Connected to \(ip)")
+                self.connectionStatus = "已连接至 \(ip)"
+                NotificationCenter.default.post(name: .locationTunnelConnected, object: "已连接至 \(ip)")
             } else {
                 let msg = LocationSimulationStatus.description(for: code)
-                self.lastError = "Error \(code): \(msg)"
+                self.lastError = "错误 \(code)：\(msg)"
                 self.connectionStatus = nil
             }
         }
@@ -146,6 +146,13 @@ final class LocationSimulationSession: ObservableObject {
 
     /// Full route playback: sends first coordinate immediately, then
     /// interpolates along the route and sends progressive updates.
+    ///
+    /// 采样率依据（与真实定位流保持同频）：
+    /// iOS 的 CLLocationManager 在 kCLDistanceFilterNone 下由 GPS 芯片按约 1 Hz
+    /// 输出定位，跑步/骑行类 App 每秒收到 1 个点、横向精度 5–15 米。
+    /// 因此这里固定 1 Hz 推送 —— 每步前进 speed × 1s 米，而不是按「每 5 米一个点」，
+    /// 后者在步行速度下会退化成 3.6 秒一个点，肉眼可见卡顿且速度显示失真。
+    ///
     /// - Parameters:
     ///   - coordinates: Route waypoints (GCJ-02 map coordinates)
     ///   - speedMPS: Speed in meters per second (e.g. 1.4 for walking, 33 for driving)
@@ -157,92 +164,144 @@ final class LocationSimulationSession: ObservableObject {
     ) {
         guard coordinates.count >= 2 else { return }
 
-        // Build interpolated samples
         let samples = buildPlaybackSamples(from: coordinates, speedMPS: speedMPS)
         let routeID = startRoute(at: coordinates[0], coordinates: coordinates)
 
-        // Send first coordinate immediately
         LocationSimulationCommandQueue.shared.async {
+            // 记录路线开始时刻，后面的每个采样点都按「开始时刻 + 偏移」绝对调度，
+            // 这样 FFI 调用自身的耗时不会累积成时间漂移（否则 1 Hz 会慢慢变成 1.1、1.2 Hz）。
+            let startTime = Date()
             _ = self.sendToDevice(coordinate: coordinates[0])
 
-            // Start playback loop
-                self.routePlaybackTask = Task {
-                    // 不再在并发闭包里捕获可变的 lastCoord：会话当前坐标就是
-                    // 最近一次成功下发的位置，重发循环会直接读取它。这样既避免
-                    // Swift 6 的并发捕获错误，也保证实时改点后重发用新坐标。
-                    for sample in samples.dropFirst() {
-                        try? await Task.sleep(for: .seconds(sample.delay))
-                        guard !Task.isCancelled, self.isCurrentRoute(routeID) else { return }
+            self.routePlaybackTask = Task {
+                for sample in samples.dropFirst() {
+                    guard !Task.isCancelled, self.isCurrentRoute(routeID) else { return }
 
-                        let target = jitterMeters > 0 ? self.applyJitter(to: sample.coordinate, meters: jitterMeters) : sample.coordinate
+                    let deadline = startTime.addingTimeInterval(sample.offset)
+                    // 真实 GPS 的输出周期并非严丝合缝的 1.000 s，而是 0.95–1.05 s 抖动。
+                    // 这里叠加 ±60 ms，避免节拍过于机械（某些分析类 App 会看周期方差）。
+                    let tick = Double.random(in: -0.06...0.06)
+                    let targetTime = deadline.addingTimeInterval(tick)
+                    let wait = targetTime.timeIntervalSinceNow
+                    if wait > 0 {
+                        try? await Task.sleep(for: .seconds(wait))
+                    } else if -wait > 2.0 {
+                        // 落后超过 2 秒：丢弃积压采样点，直接跳到当前应有的位置。
+                        // 真实 GPS 只上报「最新位置」，绝不会补发一串历史点。
+                        continue
+                    }
+                    guard !Task.isCancelled, self.isCurrentRoute(routeID) else { return }
 
-                        let code = await self.sendLocationUpdateAsync(coordinate: target)
-                        guard self.isCurrentRoute(routeID) else { return }
+                    let target = jitterMeters > 0
+                        ? self.applyJitter(to: sample.coordinate, meters: jitterMeters)
+                        : sample.coordinate
 
-                        if code != 0 {
-                            await MainActor.run {
-                                self.lastError = "路线回放失败 (code \(code))"
-                                self.startResendLoop()
-                            }
-                            return
-                        }
+                    let code = await self.sendLocationUpdateAsync(coordinate: target)
+                    guard self.isCurrentRoute(routeID) else { return }
 
+                    if code != 0 {
                         await MainActor.run {
-                            self.updateCoordinate(target)
+                            self.lastError = "路线回放失败（错误码 \(code)）"
+                            self.startResendLoop()
                         }
+                        return
                     }
 
-                    // Route finished — keep resending the current (last) coordinate
                     await MainActor.run {
-                        guard self.isCurrentRoute(routeID) else { return }
-                        self.clearRoute()
-                        self.startResendLoop()
+                        self.updateCoordinate(target)
                     }
                 }
+
+                // Route finished — keep resending the current (last) coordinate
+                await MainActor.run {
+                    guard self.isCurrentRoute(routeID) else { return }
+                    self.clearRoute()
+                    self.startResendLoop()
+                }
+            }
         }
     }
 
     private var routePlaybackTask: Task<Void, Never>?
 
+    /// 真实 GPS 的定位输出周期（秒）。iOS 在最高精度下约为 1 Hz。
+    static let fixInterval: TimeInterval = 1.0
+
     private struct PlaybackSample {
         let coordinate: CLLocationCoordinate2D
-        let delay: TimeInterval
+        /// 相对路线开始时刻的偏移（秒），用于绝对时间调度
+        let offset: TimeInterval
     }
 
-    /// Build interpolated samples between waypoints with speed-based timing.
+    /// 以 1 Hz 采样率构建回放序列。
+    /// - stepDistance = 速度 × 1 秒，保证相邻采样点的时间间隔恒为 1 秒；
+    /// - offset 为累计时间，回放时按绝对时刻调度，避免漂移；
+    /// - 极端长路线（> 6 小时）放宽到 2 秒采样，防止样本数量爆炸。
     private func buildPlaybackSamples(
         from coordinates: [CLLocationCoordinate2D],
         speedMPS: Double
     ) -> [PlaybackSample] {
         guard coordinates.count > 1 else {
-            return [PlaybackSample(coordinate: coordinates[0], delay: 0)]
+            return [PlaybackSample(coordinate: coordinates[0], offset: 0)]
         }
 
-        var samples = [PlaybackSample(coordinate: coordinates[0], delay: 0)]
-        let targetSpacing = max(5.0, speedMPS * 1.0) // one sample per second of travel
+        let speed = max(0.1, speedMPS)
+
+        var totalDistance: Double = 0
+        for (start, end) in zip(coordinates, coordinates.dropFirst()) {
+            totalDistance += distance(from: start, to: end)
+        }
+        let interval = (totalDistance / speed) > 6 * 3600 ? 2.0 : Self.fixInterval
+        let stepDistance = max(0.2, speed * interval)
+
+        var samples: [PlaybackSample] = [PlaybackSample(coordinate: coordinates[0], offset: 0)]
+        var elapsed: TimeInterval = 0
 
         for (start, end) in zip(coordinates, coordinates.dropFirst()) {
-            let distance = CLLocation(latitude: start.latitude, longitude: start.longitude)
-                .distance(from: CLLocation(latitude: end.latitude, longitude: end.longitude))
-            let steps = max(1, Int(ceil(distance / targetSpacing)))
-            let stepDelay = distance / speedMPS / Double(steps)
+            let legDistance = distance(from: start, to: end)
+            guard legDistance > 0.05 else { continue }
+
+            let steps = max(1, Int(ceil(legDistance / stepDistance)))
+            let stepTime = legDistance / speed / Double(steps)
 
             for i in 1...steps {
                 let fraction = Double(i) / Double(steps)
-                let interpolated = CLLocationCoordinate2D(
-                    latitude: start.latitude + (end.latitude - start.latitude) * fraction,
-                    longitude: start.longitude + (end.longitude - start.longitude) * fraction
-                )
-                samples.append(PlaybackSample(coordinate: interpolated, delay: stepDelay))
+                elapsed += stepTime
+                samples.append(PlaybackSample(
+                    coordinate: interpolate(from: start, to: end, fraction: fraction),
+                    offset: elapsed
+                ))
             }
         }
         return samples
     }
 
-    /// Apply random jitter to a coordinate (roughly ±meters).
+    private func distance(from a: CLLocationCoordinate2D, to b: CLLocationCoordinate2D) -> Double {
+        CLLocation(latitude: a.latitude, longitude: a.longitude)
+            .distance(from: CLLocation(latitude: b.latitude, longitude: b.longitude))
+    }
+
+    private func interpolate(
+        from a: CLLocationCoordinate2D,
+        to b: CLLocationCoordinate2D,
+        fraction: Double
+    ) -> CLLocationCoordinate2D {
+        CLLocationCoordinate2D(
+            latitude: a.latitude + (b.latitude - a.latitude) * fraction,
+            longitude: a.longitude + (b.longitude - a.longitude) * fraction
+        )
+    }
+
+    /// Apply GPS-like random jitter to a coordinate (circular, uniform within radius).
     private func applyJitter(to coordinate: CLLocationCoordinate2D, meters: Double) -> CLLocationCoordinate2D {
-        let latOffset = (Double.random(in: -1...1) * meters) / 111_320.0
-        let lonOffset = (Double.random(in: -1...1) * meters) / (111_320.0 * cos(coordinate.latitude * .pi / 180))
+        // 圆内均匀分布：半径取 sqrt 抽样，避免点过度集中在中心
+        let angle = Double.random(in: 0..<(2 * Double.pi))
+        let radius = meters * sqrt(Double.random(in: 0...1))
+        let north = radius * cos(angle)
+        let east = radius * sin(angle)
+        let latOffset = north / 111_320.0
+        let lonScale = max(0.01, cos(coordinate.latitude * .pi / 180))
+        let lonOffset = east / (111_320.0 * lonScale)
         return CLLocationCoordinate2D(
             latitude: coordinate.latitude + latOffset,
             longitude: coordinate.longitude + lonOffset
