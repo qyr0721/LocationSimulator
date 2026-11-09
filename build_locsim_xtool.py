@@ -12,7 +12,7 @@ import zlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
-SRC = ROOT / "LocationSimulator" / "LocationSimulator"
+SRC = ROOT / "LocationSimulator"
 OUT = ROOT / "LocationSimulator-XTool"
 
 

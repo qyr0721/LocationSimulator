@@ -55,13 +55,11 @@ jobs:
           xcodegen --version
 
       - name: Generate Xcode project
-        working-directory: LocationSimulator
         run: xcodegen generate --spec project.yml --quiet
 
       # 说明：libidevice_ffi.a 只含 arm64 (iOS device) slice，没有 simulator slice，
       # 所以必须用 generic/platform=iOS 编译；配合 CODE_SIGNING_ALLOWED=NO 只编译不签名。
       - name: Build (no code signing)
-        working-directory: LocationSimulator
         run: |
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/locsim"

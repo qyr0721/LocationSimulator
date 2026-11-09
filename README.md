@@ -43,8 +43,7 @@ The connection banner on the home page shows readiness in real time and blocks a
 # Install XcodeGen if you don't have it
 brew install xcodegen
 
-# Generate the Xcode project
-cd LocationSimulator
+# Generate the Xcode project (project.yml is at the repository root)
 xcodegen generate
 
 # Open in Xcode
